@@ -29,7 +29,9 @@ int main(void)
     std::cout << glGetString(GL_VERSION) << std::endl;
 
 
-    /*向OpenGL提供数据所需的所有代码*/
+#pragma region 向OpenGL提供数据所需的所有代码
+
+
     
     float positions[6] = {
 		-0.5f, -0.5f,
@@ -44,9 +46,20 @@ int main(void)
     glBindBuffer(GL_ARRAY_BUFFER, buffer);
     /*输入数据*/
     glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6, positions, GL_STATIC_DRAW);
-    
-    /*向OpenGL提供数据所需的所有代码*/
 
+
+#pragma region 告诉OpenGL我们的内存布局
+   
+    /*启用顶点属性*/
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, 0);
+    
+#pragma endregion
+
+#pragma endregion
+
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     /* Loop until the user closes the window */
     while (!glfwWindowShouldClose(window))
