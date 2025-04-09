@@ -258,3 +258,62 @@ int main(void)
 
 
 #### 在OpenGL中编写着色器
+
+着色器可以来自不同地方的变体，可以从文件中读取它们，也可以从网上下载，作为二进制数据读入等多种方式，可以编译着色器。进入着色器编译阶段。
+
+在这一节中，我们会为OpenGL提供一个字符串。归根结底，我们还是需要为OpenGL提供一个字符串，那就是你着色器的源码。
+
+基本上，我们需要向OpenGL提供我们实际的着色器源码（文本），我们想让OpenGL编译这个程序，将顶点着色器和片段着色器链接到一个独立的着色器程序，然后返回一个唯一标识符给我们，这样我们就可以绑定这个着色器程序并使用它。
+
+```c++
+static unsigned int CompileShader(unsigned int type, const std::string& source)
+{
+    unsigned int id = glCreateShader(GL_VERTEX_SHADER);
+	const char* src = source.c_str(); // 返回string开头字符的指针
+	glShaderSource(id, 1, &src, nullptr); // 将着色器源代码传递给OpenGL  id，源代码数量，源代码，长度
+	glCompileShader(id); // 编译着色器
+	/*检查编译错误*/
+	int result;
+	glGetShaderiv(id, GL_COMPILE_STATUS, &result); // 获取编译状态
+    if (result == GL_FALSE) // 如果编译失败
+    {
+		// 获取错误信息
+		int length;
+		glGetShaderiv(id, GL_INFO_LOG_LENGTH, &length); // 获取错误信息长度
+		char* message = (char*)alloca(length * sizeof(char)); // 分配栈内存（malloc是分配堆内存）
+		glGetShaderInfoLog(id, length, &length, message); // 获取错误信息
+		std::cout << "Failed to compile " << (type == GL_VERTEX_SHADER ? "vertex " : "frangment ") << "shader!" << std::endl;
+		std::cout << message << std::endl; // 输出错误信息
+		glDeleteShader(id); // 删除着色器
+        return 0;
+    }
+
+    return id;
+}
+
+static unsigned int CreateShader(const std::string& vertexShader, const std::string& frangmentShader)
+{
+    unsigned int program = glCreateProgram();
+    unsigned int vs = CompileShader(GL_VERTEX_SHADER, vertexShader);// 创建顶点着色器
+	unsigned int fs = CompileShader(GL_FRAGMENT_SHADER, frangmentShader);// 创建片段着色器
+    /*链接着色器*/
+	glAttachShader(program, vs); // 将顶点着色器附加到程序
+	glAttachShader(program, fs); // 将片段着色器附加到程序
+	glLinkProgram(program); // 链接程序
+	glValidateProgram(program); // 验证程序
+    /*我们可以删除中间产物，因为着色器已经被编译到program里了*/
+	glDeleteShader(vs); // 删除顶点着色器
+	glDeleteShader(fs); // 删除片段着色器
+	
+    /*也可以调用glDetachShader来删除着色器源代码，但是会丧失调试能力，而且它们占用的内存微不足道，删除他们得不偿失*/
+
+    return program; // 返回程序ID
+}
+```
+
+使用如下：
+
+```c++
+
+```
+
