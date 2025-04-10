@@ -314,6 +314,30 @@ static unsigned int CreateShader(const std::string& vertexShader, const std::str
 使用如下：
 
 ```c++
+/*编写第一个着色器*/
+std::string vertexShader =
+    "#version 410 core\n"
+    "\n"
+    "layout(location = 0) in vec4 position;"
+    "\n"
+    "void main()\n"
+    "{\n"
+    "   gl_Position = position;\n"
+    "}\n";
+std::string fragmentShader =
+    "#version 410 core\n"
+    "\n"
+    "layout(location = 0) out vec4 color\n;"
+    "\n"
+    "void main()\n"
+    "{\n"
+    "   color = vec4(1.0, 0.0, 0.0, 1.0);\n"
+    "}\n";
 
+unsigned int shader = CreateShader(vertexShader, fragmentShader);
+glUseProgram(shader); // 绑定着色器
 ```
 
+
+
+#### OpenGL 中如何处理着色器

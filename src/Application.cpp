@@ -104,7 +104,7 @@ int main(void)
     
 	/*编写第一个着色器*/
     std::string vertexShader =
-        "#version 330 core\n"
+        "#version 410 core\n"
         "\n"
         "layout(location = 0) in vec4 position;"
         "\n"
@@ -113,16 +113,17 @@ int main(void)
         "   gl_Position = position;\n"
         "}\n";
     std::string fragmentShader =
-        "#version 330 core\n"
+        "#version 410 core\n"
         "\n"
-        "layout(location = 0) out vec4 color;"
+        "layout(location = 0) out vec4 color\n;"
         "\n"
         "void main()\n"
         "{\n"
         "   color = vec4(1.0, 0.0, 0.0, 1.0);\n"
-        "}\n"
+        "}\n";
 
-	unsigned int shader = CreateShader();
+	unsigned int shader = CreateShader(vertexShader, fragmentShader);
+    glUseProgram(shader); // 绑定着色器
 
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -142,6 +143,8 @@ int main(void)
         /* Poll for and process events */
         glfwPollEvents();
     }
+
+	glDeleteProgram(shader); // 用完后记得删除着色器程序
 
     glfwTerminate();
     return 0;
