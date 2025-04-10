@@ -268,7 +268,7 @@ int main(void)
 ```c++
 static unsigned int CompileShader(unsigned int type, const std::string& source)
 {
-    unsigned int id = glCreateShader(GL_VERTEX_SHADER);
+    unsigned int id = glCreateShader(type);
 	const char* src = source.c_str(); // 返回string开头字符的指针
 	glShaderSource(id, 1, &src, nullptr); // 将着色器源代码传递给OpenGL  id，源代码数量，源代码，长度
 	glCompileShader(id); // 编译着色器
