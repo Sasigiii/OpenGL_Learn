@@ -5,6 +5,31 @@
 #include <string>
 #include <sstream>
 
+
+#define ASSERT(x) if (!(x)) __debugbreak(); // 断言宏
+#define GLCall(x) GLClearError();\
+    x;\
+    ASSERT(GLLogCall(#x, __FILE__, __LINE__)); // 调用OpenGL函数时使用宏来检查错误
+
+
+// 清除OpenGL错误
+static void GLClearError() 
+{
+	while (glGetError() != GL_NO_ERROR);
+	// while (!glGetError());// 也可以 
+}
+
+static bool GLLogCall(const char* function, const char* file, int line) 
+{
+    while (GLenum error = glGetError()) 
+    {
+        std::cout << "[OpenGL Error] (" << error << "): " << function 
+            << " " << file << ": " << line << std::endl;
+        return false;
+    }
+    return true;
+}
+
 struct ShaderProgramSource
 {
 	std::string VertexSource;
@@ -139,7 +164,7 @@ int main(void)
 	};
 
 
-    /*定义缓冲区*/
+    /*定义缓冲区*/ /*VBO*/
     unsigned int buffer; 
     glGenBuffers(1, &buffer);
     /*绑定缓冲区*/
@@ -180,8 +205,11 @@ int main(void)
 
         /*发出一个DrawCall*/
         // glDrawArrays(GL_TRIANGLES, 0, 6);
-		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr); // 绘制索引缓冲区中的元素 数量，类型都是索引缓冲区
 
+		// GLClearError(); // 清除OpenGL错误
+		GLCall(glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);) // 绘制索引缓冲区中的元素 数量，类型都是索引缓冲区
+		// ASSERT(GLLogCall()); // 检查OpenGL错误
+        
         /* Swap front and back buffers */
         glfwSwapBuffers(window);
 

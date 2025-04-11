@@ -738,3 +738,146 @@ int main(void)
     return 0;
 }
 ```
+
+
+
+#### 处理OpenGL中的错误
+
+今天我们要讨论的都是错误，我们怎么知道我们做错了什么以及如何尽快地调试并修复它。
+
+###### glGetError
+
+我们有两种主要的方式来检查 OpenGL 中的错误，其中一个一个叫做 `glGetError()`，它是一个我们可以调用的 OpenGL 内置函数。它能够兼容所有版本并且原理相对简单：在我们调用 OpenGL 时如果发生错误，内存中有一个标志会被内部设置，其会说明发生了什么类型的错误，并且当我们调用 `glGetError()` 时它会返回一个标志（或者说错误码）。如果我们继续调用 `glGetError()` 它会把所有标志返回给我们，因为我们可能会产生多个类型的错误。
+
+回到上次渲染正方形的代码，我们可以更改索引缓冲区类型导致错误：
+
+```c++
+-glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
++glDrawElements(GL_TRIANGLES, 6, GL_INT, nullptr);
+```
+
+![img](C:\OpenGL_Learn\OpenGL_Learn\img\JPc6wC.jpg)
+
+可以看到小小的改动得到的就是黑屏，我们的矩形根本没有渲染，这太糟糕了。
+
+###### glDebugMessageCallback
+
+在 OpenGL 4.3 中添加了一个新的函数 `glDebugMessageCallback()`。查阅文档，可以发现它允许我们指定一个指向 OpenGL 的函数指针，当错误发生时 OpenGL 会调用我们的那个函数。
+
+![image-20250411142443864](C:\OpenGL_Learn\OpenGL_Learn\img\image-20250411142443864.png)
+
+唯一的问题在于兼容性，它只在 4.3 及以上版本，所以你不能再早期版本中使用它。优点也很明显，它不会仅仅给你一个错误码，会提供更详细的信息。根据我的经验， `glDebugMessageCallback()` 总体上非常好，比 `glGetError()` 好得多。但今天我们只讨论 `glGetError()`。
+
+![image-20250411142652737](C:\OpenGL_Learn\OpenGL_Learn\img\image-20250411142652737.png)
+
+可以创建一个循环调用的清除报错函数 `GLClearError()`：
+
+```c++
+static void GLClearError()
+{
+	// while (glGetError() != GL_NO_ERROR);
+    while (!glGetError());
+}
+```
+
+接下来创建另一个打印出实际错误的函数 `GLCheckError()`：
+
+```c++
+static void GLCheckError()
+{
+	while (GLenum error = glGetError())
+	{
+		std::cout << "[OpenGL Error] (" << error << ")" << std::endl;
+	}
+}
+```
+
+现在让我们调用一下刚才的函数：
+
+```c++
++GLClearError();
+glDrawElements(GL_TRIANGLES, 6, GL_INT, nullptr);
++GLCheckError();
+```
+
+![](C:\OpenGL_Learn\OpenGL_Learn\img\CdVZjC.jpg)
+
+首先排除其他的错误，相当于调试的断言。通过这样的方式我们可以确保所有的错误实际上都是来自这个函数。
+
+可以看到错误代码是 1280。在源码中搜索 1280 找不到任何东西，因为 OpenGL 采用的是十六进制表示错误码。所以我们可以换为十六进制：0x0500。再返回 `<glew.h>` 文件检索：
+
+```c++
+#define GL_INVALID_ENUM 0x0500
+```
+
+500 意味着无效的枚举，而 `GL_INT` 确实是我们实际传递的无效枚举，它应该是无符号整型。
+
+
+
+实际上 `glClearError()` 和 `glCheckError()` 还是比较笨重，并且让扩展变得更加困难。但我们实际上可以做的就是得到实际的调试器，暂时执行并在导致错误的代码行上中断。我们可以通过使用断言来实现这一点，如果那个条件是 false，你通常要么将消息写入控制台，要么只是停止程序的执行并且在那行中断。
+
+为此我需要修改 `GLCheckError()` 变为 `GLLogCall()`：
+
+```c++
+static bool GLLogCall()
+{
+	while (GLenum error = glGetError())
+	{
+		std::cout << "[OpenGL Error] (" << error << ")" << std::endl;
+		return false;
+	}
+
+	return true;
+}
+```
+
+接着在头文件下面定义宏断言：
+
+```c++
+#define  ASSERT(x) if (!(x))   __debugbreak();
+```
+
+这是 MSVC 特有的，在 clang、gcc 或者其他编译器中都不起作用。最后插入断言：
+
+```c++
+GLClearError();
+glDrawElements(GL_TRIANGLES, 6, GL_INT, nullptr);
+-GLCheckError();
++ASSERT(GLLogCall());
+```
+
+为了方便起见定义宏 `GLCall()`：
+
+```
+#define  GLCall(x) GLClearError(); x; ASSERT(GLLogCall())
+```
+
+更改调用：
+
+```c++
+GLCall(glDrawElements(GL_TRIANGLES, 6, GL_INT, nullptr));
+```
+
+![image-20250411151334958](C:\OpenGL_Learn\OpenGL_Learn\img\image-20250411151334958.png)
+
+最后加一些调试信息：
+
+```c++
+#define  GLCall(x) GLClearError();  x;  ASSERT(GLLogCall(#x, __FILE__, __LINE__))
+
+......
+
+static bool GLLogCall(const char* function, const char* file, int line)
+{
+    while (GLenum error = glGetError())
+    {
+        std::cout << "[OpenGL Error] (" << error << "): " << function <<
+            " " << file << ":" << line << std::endl;
+        return false;
+    }
+
+    return true;
+}
+```
+
+![image-20250411152003859](C:\OpenGL_Learn\OpenGL_Learn\img\image-20250411152003859.png)
