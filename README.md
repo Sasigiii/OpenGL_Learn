@@ -341,3 +341,400 @@ glUseProgram(shader); // 绑定着色器
 
 
 #### OpenGL 中如何处理着色器
+
+个人习惯将两个着色器合并到一个只有顶点和片段着色器的文件中。不管怎样，让我们进入代码展示这一切的原理。
+
+着色器合并：首先我们实际上要做的是创建一个包含这两个着色器的文件，这样我们就无需在多个不同的着色器文件之间切换，并且很简单干净有条理。现在这个文件可能会存放多个着色器，我们需要用一种方式来区分它们。
+
+下面我们要做的就是读取这个文件，然后把它分成两块字符串，一个是我们的片段着色器，而另一个就是我们的顶点着色器源码。引入头文件 `#include<fstream>`，打开文件：
+
+```c++
+static void ParseShader(const std::string& filepath)
+{
+    std::fstream stream(filepath);
+}
+```
+
+所以现在我们需要做的就是一行一行地浏览那个文件，然后只去检查是否是指定的着色器类型。
+
+```c++
+std::string line;
+while(getline(stream, line))
+{
+    if (line.find("#shader") != std::string::npos)
+    {
+        if (line.find("vertex") != std::string::npos)
+            // set mode to vertex
+            else if (line.find("fragment") != std::string::npos)
+                // set mode to fragment
+
+                }
+}
+```
+
+添加着色器类型并在分支设定正确的类型：
+
+```c++
+enum class ShaderType
+{
+    NONE = -1, VERTEX = 0, FRAGMENT = 1
+};
+
+std::string line;
+std::stringstream ss[2];
+ShaderType type = ShaderType::NONE;
+while(getline(stream, line))
+{
+    if (line.find("#shader") != std::string::npos)
+    {
+        if (line.find("vertex") != std::string::npos)
+            type = ShaderType::VERTEX;
+        else if (line.find("fragment") != std::string::npos)
+            type = ShaderType::FRAGMENT;
+    }
+}
+else
+{
+    ss[(int)type] << line << '\n';  
+}
+```
+
+最后源码如下：
+
+```c++
+struct ShaderProgramSource
+{
+	std::string VertexSource;
+	std::string FragmentSource;
+};
+
+static ShaderProgramSource ParseShader(const std::string& filePath)
+{
+	std::ifstream stream(filePath); // 打开文件 输入文件流
+    enum class ShaderType
+    {
+        NONE = 0, VERTEX = 1, FRAGMENT = 2
+    };
+	std::string line;
+	std::stringstream ss[2]; // 创建字符串流数组 用于存储顶点着色器和片段着色器
+    ShaderType type = ShaderType::NONE;
+
+	// 逐行读取文件
+    while (getline(stream,line))
+    {
+        if (line.find("#shader") != std::string::npos)
+        {
+			if (line.find("vertex") != std::string::npos)
+			{
+				// 添加到顶点着色器
+				type = ShaderType::VERTEX;
+			}
+			else if (line.find("fragment") != std::string::npos)
+			{
+				// 添加到片段着色器
+				type = ShaderType::FRAGMENT;
+			}
+        }
+        else
+        {
+			ss[(int)type] << line << "\n"; // 将行添加到对应的着色器
+        }
+    }
+
+	return { ss[0].str(), ss[1].str() }; // 返回顶点着色器和片段着色器
+}
+```
+
+
+
+#### OpenGL 中的索引缓冲区
+
+在我们讨论索引缓冲区为什么用它以及它到底是什么之前，让我们先考虑一个图形编程的基础的问题：去画一个正方形。我们需要做什么来绘制一个正方形呢?
+
+我们的GPU所做的所有事情最终都可以归结于三角形，之后会讨论为什么是这样，现在只需要将三角形想象为我们需要表示一个平坦品面所需的最少顶点数，该平面具有指向单一方向的表面法线。正因为如此，GPU倾向于将三角形作为其渲染的基本图元。
+
+显然我们当我们绘制正方形时可以通过拼接两个三角形实现，我们绘制任何图像都是由三角形组成的，让我们尝试用当前的代码来做这件事。
+
+首先将顶点为6个（保持逆时针的顺序）
+
+```c++
+float positions[] = {
+	-0.5f, -0.5f,
+	0.5f, -0.5f,
+	0.5f,  0.5f,
+
+	0.5f, 0.5f,
+	-0.5f, 0.5f,
+	-0.5f, -0.5f
+};
+```
+
+同时更改一下缓冲区的设置和绘制指令的设置：
+
+```c++
+glBufferData(GL_ARRAY_BUFFER, 6 * 2 * sizeof(float), positions, GL_STATIC_DRAW);
+
+glDrawArrays(GL_TRIANGLES, 0, 6);
+```
+
+![](C:\OpenGL_Learn\OpenGL_Learn\img\3huSYC.jpg)
+
+很酷！我们已经画出了一个正方形，它并不太难，但是绘制这个正方形的方式有些东西不太理想：我们的两个顶点是完全一样的，也就是在复制我们的内存，我们在显存中存储相同顶点的相同字节，存储了多次。因为显存并不是无限的，而我们想要降低它的内存使用。
+
+实际上我们可以使用一种称为索引缓冲的技术，它允许我们重用现有的顶点。对于矩形或者正方形而言可能还好，它看起来可能并不浪费，因为它没有太多的东西。然而当它换成游戏中的 3D 模型如宇宙飞船，每一个组成那个飞船的独立三角形会被连接到另一个三角形，这意味着你已经立马重复了至少两个顶点，每个顶点再包含法线、切线、纹理坐标的数据，那么你不得不复制整个缓冲区，它一次又一次地构成了那个实际的顶点，那是完全不现实的。
+
+让我们来转换一下这种顶点缓冲，添加一个索引缓冲区并删除那些重复的冗余内存。
+
+```c++
+float positions[] = {
+    -0.5f, -0.5f,
+     0.5f, -0.5f,
+     0.5f,  0.5f,
+    -0.5f,  0.5f
+};
+```
+
+接着创建一个无符号整型数组 `indices`：
+
+```c++
+float positions[] = {
+    -0.5f, -0.5f,	// 0
+    0.5f, -0.5f,	// 1
+    0.5f,  0.5f,	// 2
+    -0.5f,  0.5f	// 3
+};
+
+unsigned int indices[] = {
+    0, 1, 2,
+    2, 3, 0
+}
+```
+
+这实际就是一个索引缓冲区，我们需要说明 OpenGL 如何去渲染这个三角形或者正方形，而不是给它提供冗余或重复的顶点位置。在这个例子中我们只有位置，但实际应用中可能会有更多的数据。
+
+现在我们需要把它们发送到显卡上，并且告诉 OpenGL 用它们去渲染。而我们实现的方式非常类似于创建顶点缓冲区：
+
+```c++
+unsigned int ibo;
+glGenBuffers(1, &ibo);
+glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6 * sizeof(unsigned int), indices, GL_STATIC_DRAW);
+```
+
+`ibo` 代表索引缓冲区对象，表示这个特定的索引缓冲区。这里唯一的区别是把 `GL_ARRAY_BUFFER` 换为 `GL_ELEMENT_ARRAY_BUFFER`，`positions` 替换为之前的 `indices`。
+
+需要说明一下我们会在所有这些例子中使用 `unsigned int`，因为在这种情况下不会有任何的性能差异，这里的关键是必须使用无符号类型。
+
+最后需要改变的是我们的 DrawCall：
+
+```c++
+-glDrawArrays(GL_TRIANGLES, 0, 3);
++glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
+```
+
+`count` 就是我们需要绘制的 6 个索引，绘制索引的数量而非我们绘制顶点的数量；`type` 就是在索引缓冲区中的数据类型，在本例中是 `GL_UNSIGNED_INT`；最后是指向那个索引缓冲区的指针，而前面我们已经绑定了 `ibo`，所以这里可以填 `nullptr`。这就是我们绘制三角形的实际 DrawCall 指令。
+
+![img](C:\OpenGL_Learn\OpenGL_Learn\img\o35r1Y.jpg)
+
+运行程序，你可以看到我们得到了一个漂亮的矩形。
+
+我们已经删除了任何重复的顶点，在顶点缓冲区中得到了完全唯一的顶点，之后创建了一个索引以便多次绘制顶点；然后我们用 `ibo` 绑定代码把索引缓冲区发送给显卡；最终我们使用 `glDrawElements()` 绘制图形。
+
+```c++
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <sstream>
+
+struct ShaderProgramSource
+{
+	std::string VertexSource;
+	std::string FragmentSource;
+};
+
+static ShaderProgramSource ParseShader(const std::string& filePath)
+{
+	std::ifstream stream(filePath); // 打开文件 输入文件流
+	if (!stream.is_open()) // 如果文件打开失败
+	{
+		std::cerr << "Failed to open file: " << filePath << std::endl; // 输出错误信息
+		return { "", "" }; // 返回空字符串
+	}
+
+    enum class ShaderType
+    {
+        NONE = -1, VERTEX = 0, FRAGMENT = 1
+    };
+	std::string line;
+	std::stringstream ss[2]; // 创建字符串流数组 用于存储顶点着色器和片段着色器
+    ShaderType type = ShaderType::NONE;
+	// 逐行读取文件
+    while (getline(stream,line))
+    {
+        if (line.find("#shader") != std::string::npos)
+        {
+			if (line.find("vertex") != std::string::npos)
+			{
+				// 添加到顶点着色器
+				type = ShaderType::VERTEX;
+			}
+			else if (line.find("fragment") != std::string::npos)
+			{
+				// 添加到片段着色器
+				type = ShaderType::FRAGMENT;
+			}
+        }
+        else
+        {
+			ss[(int)type] << line << "\n"; // 将行添加到对应的着色器
+        }
+    }
+
+	return { ss[0].str(), ss[1].str() }; // 返回顶点着色器和片段着色器
+}
+
+static unsigned int CompileShader(unsigned int type, const std::string& source)
+{
+    unsigned int id = glCreateShader(type);
+	const char* src = source.c_str(); // 返回string开头字符的指针
+	glShaderSource(id, 1, &src, nullptr); // 将着色器源代码传递给OpenGL  id，源代码数量，源代码，长度
+	glCompileShader(id); // 编译着色器
+	/*检查编译错误*/
+	int result;
+	glGetShaderiv(id, GL_COMPILE_STATUS, &result); // 获取编译状态
+    if (result == GL_FALSE) // 如果编译失败
+    {
+		// 获取错误信息
+		int length;
+		glGetShaderiv(id, GL_INFO_LOG_LENGTH, &length); // 获取错误信息长度
+		char* message = (char*)alloca(length * sizeof(char)); // 分配栈内存（malloc是分配堆内存）
+		glGetShaderInfoLog(id, length, &length, message); // 获取错误信息
+		std::cout << "Failed to compile " << (type == GL_VERTEX_SHADER ? "vertex " : "frangment ") << "shader!" << std::endl;
+		std::cout << message << std::endl; // 输出错误信息
+		glDeleteShader(id); // 删除着色器
+        return 0;
+    }
+
+    return id;
+}
+
+static unsigned int CreateShader(const std::string& vertexShader, const std::string& frangmentShader)
+{
+    unsigned int program = glCreateProgram();
+    unsigned int vs = CompileShader(GL_VERTEX_SHADER, vertexShader);// 创建顶点着色器
+	unsigned int fs = CompileShader(GL_FRAGMENT_SHADER, frangmentShader);// 创建片段着色器
+    /*链接着色器*/
+	glAttachShader(program, vs); // 将顶点着色器附加到程序
+	glAttachShader(program, fs); // 将片段着色器附加到程序
+	glLinkProgram(program); // 链接程序
+	glValidateProgram(program); // 验证程序
+    /*我们可以删除中间产物，因为着色器已经被编译到program里了*/
+	glDeleteShader(vs); // 删除顶点着色器
+	glDeleteShader(fs); // 删除片段着色器
+	
+    /*也可以调用glDetachShader来删除着色器源代码，但是会丧失调试能力，而且它们占用的内存微不足道，删除他们得不偿失*/
+
+    return program; // 返回程序ID
+}
+
+int main(void)
+{
+    GLFWwindow* window;
+
+    /* Initialize the library */
+    if (!glfwInit())
+        return -1;
+
+    /* Create a windowed mode window and its OpenGL context */
+    window = glfwCreateWindow(640, 480, "Hello World", NULL, NULL);
+    if (!window)
+    {
+        glfwTerminate();
+        return -1;
+    }
+
+    /* Make the window's context current */ /*获取OpenGL上下文*/
+    glfwMakeContextCurrent(window);
+
+    if (glewInit() != GLEW_OK)
+    {
+        std::cout << "Error initializing GLEW" << std::endl;
+    }
+
+    std::cout << glGetString(GL_VERSION) << std::endl;
+
+
+#pragma region 向OpenGL提供数据所需的所有代码
+
+    float positions[] = {
+		-0.5f, -0.5f, // 0
+		 0.5f, -0.5f, // 1
+		 0.5f,  0.5f, // 2
+		 -0.5f, 0.5f, // 3
+	};
+
+    /*定义一个索引缓冲区*/
+	unsigned int indices[] = {
+		0, 1, 2, // 第一个三角形
+		2, 3, 0  // 第二个三角形
+	};
+
+
+    /*定义缓冲区*/
+    unsigned int buffer; 
+    glGenBuffers(1, &buffer);
+    /*绑定缓冲区*/
+    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    /*输入数据*/
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 8, positions, GL_STATIC_DRAW);
+
+
+#pragma region 告诉OpenGL我们的内存布局
+   
+    /*启用顶点属性*/
+    glEnableVertexAttribArray(0);
+    // 0表示位置属性，2表示每个顶点有两个属性，GL_FLOAT表示属性类型，GL_FALSE表示不标准化，sizeof(float) * 2表示步长，0表示偏移量
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, 0);
+	/*创建索引缓冲区*/
+    unsigned int ibo;
+    glGenBuffers(1, &ibo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6 * sizeof(unsigned int), indices, GL_STATIC_DRAW);
+
+
+#pragma endregion
+
+#pragma endregion
+	ShaderProgramSource source = ParseShader("res/shaders/Basic.shader"); // 解析着色器
+
+	unsigned int shader = CreateShader(source.VertexSource, source.FragmentSource);
+    glUseProgram(shader); // 绑定着色器
+
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    /* Loop until the user closes the window */
+    while (!glfwWindowShouldClose(window))
+    {
+        /* Render here */
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        /*发出一个DrawCall*/
+        // glDrawArrays(GL_TRIANGLES, 0, 6);
+		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr); // 绘制索引缓冲区中的元素 数量，类型都是索引缓冲区
+
+        /* Swap front and back buffers */
+        glfwSwapBuffers(window);
+
+        /* Poll for and process events */
+        glfwPollEvents();
+    }
+
+	glDeleteProgram(shader); // 用完后记得删除着色器程序
+
+    glfwTerminate();
+    return 0;
+}
+```
