@@ -881,3 +881,280 @@ static bool GLLogCall(const char* function, const char* file, int line)
 ```
 
 ![image-20250411152003859](C:\OpenGL_Learn\OpenGL_Learn\img\image-20250411152003859.png)
+
+
+
+#### OpenGL 中的统一变量
+
+今天我们要讨论的是统一变量。
+
+那么首先统一变量是一个非常单一的概念，它对于我们而言实际上是一种从 CPU 端获取数据的方式。在本例中是从 C++ 到我们的着色器，所以我们实际上把它当一个变量使用，统一变量是按每次绘制设置的。
+
+###### 颜色变量
+
+回到着色器我们创建一个 `u_Color` 并赋值：
+
+```c++
+#shader fragment
+#version 330 core
+
+layout(location = 0) out vec4 color;
+
++uniform vec4 u_Color;
+
+void main()
+{
+-   color = vec4(0.0, 0.2, 0.8, 1.0);
++   color = u_Color;
+}
+```
+
+OpenGL的做法是一旦我们的着色器被创建，每个统一变量就会被分配一个ID，以便我们可以引用它。而我们查找 id 的方式通常是通过它的名称，所以我们基本上就是询问我们的着色器 `u_Color` 变量的位置，然后我们会得到一个int的返回。（因此设置统一变量必须在 **glUseProgram(shader)** 方法之后。）
+
+在更现代的 OpenGL 版本，你实际上可以设置和索引。所以从 4.3 开始你可以指定一个明确的统一变量位置，这是一种非常现代的新功能。
+
+```c++
+	ShaderProgramSource source = ParseShader("res/shader/basic.shader");
+	unsigned int shader = CreateShader(source.VertexSource, source.FragmentSource);
+	GLCall(glUseProgram(shader));
+
++	GLCall(int location = glGetUniformLocation(shader, "u_Color"));
++	ASSERT(location != -1);
++	GLCall(glUniform4f(location, 0.2f, 0.3f, 0.8f, 1.0f));
+
+	/* Loop until the user closes the window */
+	while (!glfwWindowShouldClose(window))
+	{
+		......
+```
+
+总结一下，我通过使用实际的着色器 id 编写 `glUseProgram()` 绑定着色器，获取这个颜色变量的实际位置。而当我获取那个位置的时候，就调用 `glUniform4f()` 在着色器中设置我的数据。如果一切顺利，我应该将这个颜色值写入我的矩形每个像素的实际输出颜色：
+
+![img](C:\OpenGL_Learn\OpenGL_Learn\img\zZJOiw.jpg)
+
+可以看到我们得到了与之前完全相同的结果，为了区分明显一点修改颜色：
+
+```
+-GLCall(glUniform4f(location, 0.2f, 0.3f, 0.8f, 1.0f));
++GLCall(glUniform4f(location, 0.8f, 0.3f, 0.8f, 1.0f));
+```
+
+![img](C:\OpenGL_Learn\OpenGL_Learn\img\GiuTRy.jpg)
+
+###### 动态变化
+
+好了，那么现在做点更令人兴奋的事情吧：让我们这个颜色动起来并且在渲染循环中随时间改变它。
+
+```c++
++	float r = 0.0f;
++	float increment = 0.05f;
+	/* Loop until the user closes the window */
+	while (!glfwWindowShouldClose(window))
+	{
+		/* Render here */
+		GLCall(glClear(GL_COLOR_BUFFER_BIT));
+
++		GLCall(glUniform4f(location, r, 0.3f, 0.8f, 1.0f));
+		GLCall(glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr));
+
++		if (r > 1.0f)
++			increment = -0.05f;
++		else if (r < 0.0f)
++			increment = 0.05f;
++
++		r += increment;
+
+		/* Swap front and back buffers */
+		glfwSwapBuffers(window);
+
+		/* Poll for and events */
+		glfwPollEvents();
+	}
+
+	GLCall(glDeleteProgram(shader));
+
+	glfwTerminate();
+	return 0;
+}
+```
+
+运行程序会发现颜色变化比较快，因为我们没有限制帧率：
+
+```c++
+	/* Make the window's context current */
+	glfwMakeContextCurrent(window);
+
++	glfwSwapInterval(1);
+```
+
+该设置可以同步我们主频的帧率，得到更平滑的动画。
+
+
+
+#### OpenGL 中的顶点数组
+
+今天我们会讲 OpenGL 的顶点数组。
+
+###### 顶点数组
+
+我们讲了很多 OpenGL 的基本概念甚至一般的图形编程，但 OpenGL 实际上有一个顶点数组。乍一看你可能会说顶点数组、顶点缓冲区它们之间的区别是什么，它们听起来非常相似。确实如此，并且这并不是 DirectX 等其他渲染接口中真正存在的东西，它是 OpenGL 独有的，也可以说是 OpenGL 的一个原始接口。它们基本上是一种通过特定的规范绑定顶点缓冲区的方式，用于实际顶点缓冲区的布局。
+
+在我们的代码中，我们创建了 `buffer` 包含所有的顶点数据，然后创建缓冲区之后也做了绑定，启用了顶点属性指定实际数据的布局。现在一个顶点数组对象允许我们通过 `glVertexAttribArray()` 绑定指定的顶点规范到实际的顶点缓冲区，可能对于 OpenGL 的初学者比较难以理解，如果屏幕上有多个对象、多个网格、多个顶点缓冲区，需要我们绑定顶点和索引缓冲区，然后绘制实际的对象。
+
+但我们绑定顶点缓冲区之后，我们实际也需要指定布局，让我们看看解绑一切会发生什么：
+
+```c++
+	GLCall(int location = glGetUniformLocation(shader, "u_Color"));
+	ASSERT(location != -1);
+	GLCall(glUniform4f(location, 0.8f, 0.3f, 0.8f, 1.0f));
+
++	GLCall(glUseProgram(0));
++	GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0));
++	GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
+
+	float r = 0.0f;
+	float increment = 0.05f;
+	/* Loop until the user closes the window */
+```
+
+这里我基本上解绑了所有的东西，到了绘制的时候我们需要实际上绑定我们需要的所有东西，让 DrawCall 工作以此正确渲染所有东西：
+
+```c++
+/* Loop until the user closes the window */
+	while (!glfwWindowShouldClose(window))
+	{
+		/* Render here */
+		GLCall(glClear(GL_COLOR_BUFFER_BIT));
+
+		GLCall(glUseProgram(shader));
+		GLCall(glUniform4f(location, r, 0.3f, 0.8f, 1.0f));
+
++		GLCall(glBindBuffer(GL_ARRAY_BUFFER, buffer));
++		GLCall(glEnableVertexAttribArray(0));
++		GLCall(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, 0));
++
++		GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo));
++
++		GLCall(glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr));
+
+		if (r > 1.0f)
+			increment = -0.05f;
+		else if (r < 0.0f)
+			increment = 0.05f;
+
+		r += increment;
+
+		/* Swap front and back buffers */
+		glfwSwapBuffers(window);
+
+		/* Poll for and events */
+		glfwPollEvents();
+	}
+```
+
+我们绑定着色器，设置统一变量，绑定顶点缓冲区，设置顶点缓冲区的布局，最后绑定索引缓冲区调用 `glDrawElements()`。运行这段代码看看会发生什么：
+
+![img](C:\OpenGL_Learn\OpenGL_Learn\img\ZuZbei.jpg)
+
+得到了和之前一样的结果，完美。这里值得商榷的是这里：
+
+```c++
+GLCall(glEnableVertexAttribArray(0));
+GLCall(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, 0));
+```
+
+我们是否每次都要这样做？答案是肯定的，因为如果我们用不同的布局绘制另一个对象，它们可能已经改变了。所以顶点数组对象实际上就是包含这种状态的对象，因此如果我们正确地利用顶点数组对象例如为几何体的每个部分创建不同的顶点数组对象，然后只需要绑定顶点数组对象就完事儿了，因为顶点数组对象将包含顶点缓冲区之间的绑定、布局。
+
+因此，我们的绘制方式从绑定我们的着色器、绑定我们的顶点缓冲区、设置顶点布局、绑定我们的索引缓冲区、然后发出实际的 DrawCall 指令变为了绑定我们的着色器、**绑定顶点数组**、绑定索引缓冲区、最终发出实际的 DrawCall 指令。**所以绑定顶点缓冲区并设置其布局变为了绑定顶点数组对象，因为它包含了我们实际需要的所有状态。**
+
+我需要在这里提一件事情，从技术上讲顶点数组对象是必须的，它们现在正在被使用，这就是为什么我说即使我们没有创建它们，这个状态仍由顶点数组对象保持。这个东西是 OpenGL 兼容性配置文件，默认情况下兼容性配置文件实际上为我们创建了一个顶点数组对象。
+
+然而，核心配置文件没有。所以我们实际上需要自己显式地创建一个 OpenGL 顶点数组对象，绑定它确保一切正常。如果我们正在使用核心配置文件，需要手动处理：
+
+```
+int main()
+{
+	/* Initialize the library */
+	if (!glfwInit())
+		return -1;
+
++	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
++	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
++	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+
+	/* Create a Windowed mode and its OpenGL context */
+	GLFWwindow* window = glfwCreateWindow(640, 480, "Hello World", NULL, NULL);
+    ......
+```
+
+前两行确定 OpenGL 的主次版本为 3.3，后一行则设置我的 OpenGL 配置为核心配置文件 `GLFW_OPENGL_CORE_PROFILE`。
+
+F5运行程序，触发了断言
+
+![image-20250411180729928](C:\OpenGL_Learn\OpenGL_Learn\img\image-20250411180729928.png)
+
+错误码为1282，查阅文档可知是因为没有绑定顶点数组对象
+
+![image-20250411181638971](C:\OpenGL_Learn\OpenGL_Learn\img\image-20250411181638971.png)
+
+那么我们需要做的就是在核心配置文件中实际创建那个 VAO，也就是顶点数组对象：
+
+```c++
+	unsigned int indices[] = {
+		0, 1, 2,
+		2, 3, 0
+	};
+
++	unsigned int vao;
++	GLCall(glGenVertexArrays(1, &vao));
++	GLCall(glBindVertexArray(vao));
+
+	unsigned int buffer;
+```
+
+再次运行程序不再报错，这就是我们显式地创建一个 vao。有意思的是我们甚至可以删掉部分绑定的代码，程序依然可运行：
+
+```c++
++	GLCall(glBindVertexArray(0));
+	GLCall(glUseProgram(0));
+	GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0));
+	GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
+
+	float r = 0.0f;
+	float increment = 0.05f;
+
+	/* Loop until the user closes the window */
+	while (!glfwWindowShouldClose(window))
+	{
+		/* Render here */
+		GLCall(glClear(GL_COLOR_BUFFER_BIT));
+
+		GLCall(glUseProgram(shader));
+		GLCall(glUniform4f(location, r, 0.3f, 0.8f, 1.0f));
+
+-		GLCall(glBindBuffer(GL_ARRAY_BUFFER, buffer));
+-		GLCall(glEnableVertexAttribArray(0));
+-		GLCall(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, 0));
+
++		GLCall(glBindVertexArray(vao));
+		GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo));
+
+		GLCall(glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr));
+        ......
+```
+
+当我们绑定顶点数组和缓冲区的时候，实际上没有链接两者。但当我们指定这个 `vertexAttribPointer` 的时候，我们说的是这个顶点数组索引为 0 的位置将实际绑定到当前绑定的 `GL_ARRAY_BUFFER` 插槽。也就是说`vertexAttribPointer` 这行代码实际上是将这个缓冲区与这个顶点数组对象链接起来。
+
+###### 应用策略
+
+那么我们应该一直使用顶点数组对象吗？
+
+答案是视情况而定。如果我们使用当前的核心配置文件，我们必须创建一个顶点数组的对象；如果我们只使用兼容性配置文件，这并不意味着没有顶点数组对象，这只意味着我们有一个默认的顶点数组对象，它被绑定并设置为供我们使用。
+
+- PlanA 是技术上你可以创造一个顶点数组对象，在你整个项目过程中都把它放在一边。因此始终有一个绑定的顶点数组对象，然后你可以在绘制几何体之前绑定一个顶点缓冲区并指定一个顶点布局。
+- PlanB 则是对于你创建的几何体的每一块创建一个顶点数组对象，然后指定那个规范一次，你就可以启用任何你需要的 vertexAttribArray 了，可以根据需要多次指定 `glVertexAttribPointer()` 把那些都设置好。然后在执行所有这些操作之前，你将看到绑定顶点缓冲区，到了绘制的时候只需每次绘制几何体之前绑定不同的顶点数组对象、将其绑定到索引缓冲区中，就可以调用 `glDrawElements` 或者任何绘制函数。
+
+所以你可以在整个项目上有一个全局 VAO，然后每次绑定不同的缓冲区和不同的顶点规范；或者你对每个几何体都有单独的 VAO。哪一个更好，还是很难回答。
+
+在很久之前 NVIDIA 做过研究全局 VAO 然后每次绑定一切速度更快。最近我没有做过相关的基准测试，但是我还是建议使用 VAO，OpenGL 也建议去使用它们。但这个世界很复杂，与理想情况下 VAO 的工作原理略有不同，所以我的建议是如果你真的关心性能需要从这一切中挤出最后一点性能，实际上你需要做一些测试，在你的环境中、你的平台上、你的设备中等等实际生产环境中进行尝试两种方案孰优孰劣。

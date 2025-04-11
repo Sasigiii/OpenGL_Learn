@@ -121,6 +121,7 @@ static unsigned int CreateShader(const std::string& vertexShader, const std::str
     return program; // 返回程序ID
 }
 
+
 int main(void)
 {
     GLFWwindow* window;
@@ -129,8 +130,15 @@ int main(void)
     if (!glfwInit())
         return -1;
 
+    /*使用核心配置文件*/
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
     /* Create a windowed mode window and its OpenGL context */
     window = glfwCreateWindow(640, 480, "Hello World", NULL, NULL);
+	glfwSwapInterval(1); // 设置帧率与显示器刷新率一致
+
     if (!window)
     {
         glfwTerminate();
@@ -163,6 +171,10 @@ int main(void)
 		2, 3, 0  // 第二个三角形
 	};
 
+    /*创建顶点数组对象*/
+    unsigned int vao;
+	GLCall(glGenVertexArrays(1, &vao)); // 生成一个VAO
+	GLCall(glBindVertexArray(vao)); // 绑定VAO
 
     /*定义缓冲区*/ /*VBO*/
     unsigned int buffer; 
@@ -176,14 +188,14 @@ int main(void)
 #pragma region 告诉OpenGL我们的内存布局
    
     /*启用顶点属性*/
-    glEnableVertexAttribArray(0);
+    GLCall(glEnableVertexAttribArray(0));
     // 0表示位置属性，2表示每个顶点有两个属性，GL_FLOAT表示属性类型，GL_FALSE表示不标准化，sizeof(float) * 2表示步长，0表示偏移量
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, 0);
+    GLCall(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, 0));
 	/*创建索引缓冲区*/
     unsigned int ibo;
-    glGenBuffers(1, &ibo);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6 * sizeof(unsigned int), indices, GL_STATIC_DRAW);
+    GLCall(glGenBuffers(1, &ibo));
+    GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo));
+    GLCall(glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6 * sizeof(unsigned int), indices, GL_STATIC_DRAW));
 
 
 #pragma endregion
@@ -194,14 +206,32 @@ int main(void)
 	unsigned int shader = CreateShader(source.VertexSource, source.FragmentSource);
     glUseProgram(shader); // 绑定着色器
 
+	GLCall(int localtion = glGetUniformLocation(shader, "u_Color")); // 获取uniform变量位置
+	ASSERT(localtion != -1); // 检查uniform变量位置是否有效
+    glUniform4f(localtion, 1.0f, 0.3f, 0.8f, 1.0f); // 设置uniform变量
 
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    /*解绑所有缓冲区*/
+	GLCall(glBindVertexArray(0);) // 解绑VAO
+	GLCall(glUseProgram(0);) // 解绑Program
+	GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0);) // 解绑VBO
+	GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);) // 解绑IBO
+
+	float r = 0.0f;
+	float increment = 0.05f;
 
     /* Loop until the user closes the window */
     while (!glfwWindowShouldClose(window))
     {
         /* Render here */
         glClear(GL_COLOR_BUFFER_BIT);
+
+
+        /*颜色动态变化*/
+        GLCall(glUseProgram(shader);)
+        glUniform4f(localtion, r, 0.3f, 0.8f, 1.0f);
+
+		GLCall(glBindVertexArray(vao)); // 绑定顶点数组对象
+		GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);) // 绑定索引缓冲区
 
         /*发出一个DrawCall*/
         // glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -210,6 +240,16 @@ int main(void)
 		GLCall(glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);) // 绘制索引缓冲区中的元素 数量，类型都是索引缓冲区
 		// ASSERT(GLLogCall()); // 检查OpenGL错误
         
+		if (r > 1.0f)
+		{
+			increment = -0.05f;
+		}
+		else if (r < 0.0f)
+		{
+			increment = 0.05f;
+		}
+		r += increment; // 更新颜色值
+
         /* Swap front and back buffers */
         glfwSwapBuffers(window);
 
