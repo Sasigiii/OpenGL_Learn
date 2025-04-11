@@ -477,7 +477,7 @@ glBufferData(GL_ARRAY_BUFFER, 6 * 2 * sizeof(float), positions, GL_STATIC_DRAW);
 glDrawArrays(GL_TRIANGLES, 0, 6);
 ```
 
-![3huSYC](img\3huSYC.png)
+![3huSYC](img/3huSYC.png)
 
 很酷！我们已经画出了一个正方形，它并不太难，但是绘制这个正方形的方式有些东西不太理想：我们的两个顶点是完全一样的，也就是在复制我们的内存，我们在显存中存储相同顶点的相同字节，存储了多次。因为显存并不是无限的，而我们想要降低它的内存使用。
 
@@ -534,7 +534,7 @@ glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6 * sizeof(unsigned int), indices, GL_STAT
 
 `count` 就是我们需要绘制的 6 个索引，绘制索引的数量而非我们绘制顶点的数量；`type` 就是在索引缓冲区中的数据类型，在本例中是 `GL_UNSIGNED_INT`；最后是指向那个索引缓冲区的指针，而前面我们已经绑定了 `ibo`，所以这里可以填 `nullptr`。这就是我们绘制三角形的实际 DrawCall 指令。
 
-![img](img\o35r1Y.png)
+![img](img/o35r1Y.png)
 
 运行程序，你可以看到我们得到了一个漂亮的矩形。
 
@@ -756,7 +756,7 @@ int main(void)
 +glDrawElements(GL_TRIANGLES, 6, GL_INT, nullptr);
 ```
 
-![img](img\JPc6wC.png)
+![img](img/JPc6wC.png)
 
 可以看到小小的改动得到的就是黑屏，我们的矩形根本没有渲染，这太糟糕了。
 
@@ -800,7 +800,7 @@ glDrawElements(GL_TRIANGLES, 6, GL_INT, nullptr);
 +GLCheckError();
 ```
 
-![CdVZjC](img\CdVZjC.png)
+![CdVZjC](img/CdVZjC.png)
 
 首先排除其他的错误，相当于调试的断言。通过这样的方式我们可以确保所有的错误实际上都是来自这个函数。
 
@@ -858,7 +858,7 @@ glDrawElements(GL_TRIANGLES, 6, GL_INT, nullptr);
 GLCall(glDrawElements(GL_TRIANGLES, 6, GL_INT, nullptr));
 ```
 
-![image-20250411151334958](img\image-20250411151334958.png)
+![image-20250411151334958](img/image-20250411151334958.png)
 
 最后加一些调试信息：
 
@@ -880,7 +880,7 @@ static bool GLLogCall(const char* function, const char* file, int line)
 }
 ```
 
-![image-20250411152003859](img\image-20250411152003859.png)
+![image-20250411152003859](img/image-20250411152003859.png)
 
 
 
@@ -930,7 +930,7 @@ OpenGL的做法是一旦我们的着色器被创建，每个统一变量就会�
 
 总结一下，我通过使用实际的着色器 id 编写 `glUseProgram()` 绑定着色器，获取这个颜色变量的实际位置。而当我获取那个位置的时候，就调用 `glUniform4f()` 在着色器中设置我的数据。如果一切顺利，我应该将这个颜色值写入我的矩形每个像素的实际输出颜色：
 
-![zZJOiw](img\zZJOiw.png)
+![zZJOiw](img/zZJOiw.png)
 
 可以看到我们得到了与之前完全相同的结果，为了区分明显一点修改颜色：
 
@@ -939,7 +939,7 @@ OpenGL的做法是一旦我们的着色器被创建，每个统一变量就会�
 +GLCall(glUniform4f(location, 0.8f, 0.3f, 0.8f, 1.0f));
 ```
 
-![GiuTRy](img\GiuTRy.png)
+![GiuTRy](img/GiuTRy.png)
 
 ###### 动态变化
 
@@ -1054,7 +1054,7 @@ OpenGL的做法是一旦我们的着色器被创建，每个统一变量就会�
 
 我们绑定着色器，设置统一变量，绑定顶点缓冲区，设置顶点缓冲区的布局，最后绑定索引缓冲区调用 `glDrawElements()`。运行这段代码看看会发生什么：
 
-![ZuZbei](img\ZuZbei.png)
+![ZuZbei](img/ZuZbei.png)
 
 得到了和之前一样的结果，完美。这里值得商榷的是这里：
 
@@ -1092,7 +1092,7 @@ int main()
 
 F5运行程序，触发了断言
 
-![image-20250411180729928](img\image-20250411180729928.png)
+![image-20250411180729928](img/image-20250411180729928.png)
 
 错误码为1282，查阅文档可知是因为没有绑定顶点数组对象
 
