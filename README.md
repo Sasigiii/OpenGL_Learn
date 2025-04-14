@@ -1895,5 +1895,52 @@ int main()
 
 
 
+#### OpenG 中抽象着色器
 
+着色器需要什么？
+
+第一步首先我们希望能够传递一个文件或者字符串，把它作为着色器来编译；第二步我们希望能够绑定和解绑着色器；第三步则是我们需要能够设置着色器中各种不同的统一变量，这可能就是我们现在正在研究的东西。
+
+###### 着色器抽象
+
+那么，让我们开始深入重构代码吧。
+
+新建文件 `Shader.h` 和 `Shader.cpp` 抽象着色器类。
+
+```c++
+#pragma once
+
+#include <string>
+#include <unordered_map>
+
+struct ShaderProgramSource
+{
+    std::string VertexSource;
+    std::string FragmentSource;
+};
+
+class Shader
+{
+private:
+    std::string m_FilePath;
+    unsigned int m_RendererID;
+    std::unordered_map<std::string, int> m_UniformLocationCache;
+public:
+    Shader(const std::string& filepath);
+    ~Shader();
+
+    void Bind() const;
+    void Unbind() const;
+
+    // Set uniforms
+    void SetUniform4f(const std::string& name, float v0, float v1, float v2, float v3);
+
+private:
+    ShaderProgramSource ParseShader(const std::string& filepath) const;
+    unsigned int CompileShader(unsigned int type, const std::string& source);
+    unsigned int CreateShader(const std::string& vertexShader, const std::string& fragmentShader);
+  
+    unsigned int GetUniformLocation(const std::string& name);
+};
+```
 
