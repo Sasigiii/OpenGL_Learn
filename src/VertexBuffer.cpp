@@ -1,0 +1,26 @@
+#include "VertexBuffer.h"
+#include "Renderer.h"
+
+VertexBuffer::VertexBuffer(const void* data, unsigned int size)
+{
+    glGenBuffers(1, &m_RendererID);
+    /*绑定缓冲区*/
+    glBindBuffer(GL_ARRAY_BUFFER, m_RendererID);
+    /*输入数据*/
+    glBufferData(GL_ARRAY_BUFFER, size, data, GL_STATIC_DRAW);
+}
+
+VertexBuffer::~VertexBuffer()
+{
+	GLCall(glDeleteBuffers(1, &m_RendererID)); // 删除缓冲区
+}
+
+void VertexBuffer::Bind() const
+{
+	GLCall(glBindBuffer(GL_ARRAY_BUFFER, m_RendererID)); // 绑定缓冲区
+}
+
+void VertexBuffer::Unbind() const
+{
+	GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0)); // 解绑缓冲区
+}

@@ -1158,3 +1158,373 @@ F5运行程序，触发了断言
 所以你可以在整个项目上有一个全局 VAO，然后每次绑定不同的缓冲区和不同的顶点规范；或者你对每个几何体都有单独的 VAO。哪一个更好，还是很难回答。
 
 在很久之前 NVIDIA 做过研究全局 VAO 然后每次绑定一切速度更快。最近我没有做过相关的基准测试，但是我还是建议使用 VAO，OpenGL 也建议去使用它们。但这个世界很复杂，与理想情况下 VAO 的工作原理略有不同，所以我的建议是如果你真的关心性能需要从这一切中挤出最后一点性能，实际上你需要做一些测试，在你的环境中、你的平台上、你的设备中等等实际生产环境中进行尝试两种方案孰优孰劣。
+
+
+
+#### 将OpenGL抽象成类
+
+目前我们能抽象的东西有顶点缓冲，索引缓冲，顶点数组和着色器。然而还有一样东西需要将所有内容串联起来。这传统上被称为渲染器，因此，我们确实也需要在某个时刻创建一个渲染器。渲染器的概念相当简单，基本上你只需要给它一个命令，它就会为你渲染那个东西。
+
+###### 抽象顶点索引缓冲区成类
+
+在编写顶点缓冲类时，我们不需要担心实际顶点缓冲的布局，我们只关心实际的数据，这些数据不过是一堆字节，在这个阶段处理起来非常容易。然后索引缓冲也类似。
+
+###### 错误处理类抽象
+
+新建 `Renderer.h` 和 `Renderer.cpp`，将之前的错误处理代码放到新文件中。
+
+```c++
+#pragma once
+
+#include <GL/glew.h>
+
+#define  ASSERT(x) if (!(x))   __debugbreak();
+#define  GLCall(x) GLClearError();  x;  ASSERT(GLLogCall(#x, __FILE__, __LINE__))
+
+void GLClearError();
+bool GLLogCall(const char* function, const char* file, int line);
+```
+
+`Renderer.h` 头文件包含了之前宏定义、断言以及函数的声明。
+
+```c++
+#include "Renderer.h"
+
+#include <iostream>
+
+void GLClearError()
+{
+    while (glGetError() != GL_NO_ERROR);
+}
+
+bool GLLogCall(const char* function, const char* file, int line)
+{
+    while (const GLenum error = glGetError())
+    {
+        std::cout << "[OpenGL Error] (" << error << "): " << function <<
+            " " << file << ":" << line << std::endl;
+        return false;
+    }
+
+    return true;
+}
+```
+
+`Renderer.cpp` 则是函数的实现。
+
+###### VertexBuffer 类抽象
+
+同理新建 `VertexBuffer.h` 和 `VertexBuffer.cpp` 两个文件。
+
+```c++
+#pragma once
+
+class VertexBuffer
+{
+private:
+    unsigned int m_RendererID;
+
+public:
+    VertexBuffer(const void* data, unsigned int size);
+    ~VertexBuffer();
+
+    void Bind() const;
+    void Unbind() const;
+};
+```
+
+其中 `Vertexbuffer.h` 包含一个成员变量 `m_RendererID`、构造函数、析构函数以及绑定 / 解绑函数的声明。
+
+```c++
+#include "VertexBuffer.h"
+
+#include "Renderer.h"
+
+VertexBuffer::VertexBuffer(const void* data, unsigned size)
+{
+    GLCall(glGenBuffers(1, &m_RendererID))
+    GLCall(glBindBuffer(GL_ARRAY_BUFFER, m_RendererID))
+    GLCall(glBufferData(GL_ARRAY_BUFFER, size, data, GL_STATIC_DRAW))
+}
+
+VertexBuffer::~VertexBuffer()
+{
+    GLCall(glDeleteBuffers(1, &m_RendererID))
+}
+
+void VertexBuffer::Bind() const
+{
+    GLCall(glBindBuffer(GL_ARRAY_BUFFER, m_RendererID))
+}
+
+void VertexBuffer::Unbind() const
+{
+    GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0))
+}
+```
+
+###### IndexBuffer 类抽象
+
+同理新建 `IndexBuffer.h` 和 `IndexBuffer.cpp` 两个文件。
+
+```c++
+#pragma once
+
+class IndexBuffer
+{
+private:
+    unsigned int m_RendererID;
+    unsigned int m_Count;
+
+public:
+    IndexBuffer(const unsigned int* data, unsigned int count);
+    ~IndexBuffer();
+
+    void Bind() const;
+    void Unbind() const;
+
+    inline unsigned int GetCount() const { return m_Count; }
+};
+```
+
+其中 `Indexbuffer.h` 包含两个成员变量 `m_RendererID` `m_Count`、构造函数、析构函数以及绑定 / 解绑函数的声明。
+
+```c++
+#include "IndexBuffer.h"
+
+#include "Renderer.h"
+
+IndexBuffer::IndexBuffer(const unsigned int* data, unsigned int count)
+    : m_Count(count)
+{
+    ASSERT(sizeof(unsigned int) == sizeof(GLuint))
+  
+    GLCall(glGenBuffers(1, &m_RendererID))
+    GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_RendererID))
+    GLCall(glBufferData(GL_ELEMENT_ARRAY_BUFFER, count * sizeof(unsigned int), data, GL_STATIC_DRAW))
+}
+
+IndexBuffer::~IndexBuffer()
+{
+    GLCall(glDeleteBuffers(1, &m_RendererID))
+}
+
+void IndexBuffer::Bind() const
+{
+    GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_RendererID))
+}
+
+void IndexBuffer::Unbind() const
+{
+    GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0))
+}
+```
+
+###### 应用类
+
+最终封装之后 `Application.cpp` 代码如下：
+
+```c++
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <sstream>
+
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+
+#include "Renderer.h"
+
+#include "VertexBuffer.h"
+#include "IndexBuffer.h"
+
+struct ShaderProgramSource
+{
+	std::string VertexSource;
+	std::string FragmentSource;
+};
+
+static ShaderProgramSource ParseShader(const std::string& filepath)
+{
+	std::ifstream stream(filepath);
+
+	enum class ShaderType
+	{
+		NONE = -1, VERTEX = 0, FRAGMENT = 1
+	};
+
+	std::string line;
+	std::stringstream ss[2];
+	ShaderType type = ShaderType::NONE;
+	while (getline(stream, line))
+	{
+		if (line.find("#shader") != std::string::npos)
+		{
+			if (line.find("vertex") != std::string::npos)
+				type = ShaderType::VERTEX;
+			else if (line.find("fragment") != std::string::npos)
+				type = ShaderType::FRAGMENT;
+		}
+		else
+		{
+			ss[static_cast<int>(type)] << line << '\n';
+		}
+	}
+
+	return { ss[0].str(), ss[1].str() };
+}
+
+static unsigned int CompileShader(unsigned int type, const std::string& source)
+{
+	const unsigned int id = glCreateShader(type);
+	const char* src = source.c_str();
+	GLCall(glShaderSource(id, 1, &src, nullptr))
+	GLCall(glCompileShader(id))
+
+	// TODO: Error handling
+	int result;
+	GLCall(glGetShaderiv(id, GL_COMPILE_STATUS, &result))
+	if (result == GL_FALSE)
+	{
+		int length;
+		GLCall(glGetShaderiv(id, GL_INFO_LOG_LENGTH, &length))
+
+		char* message = static_cast<char*>(malloc(length * sizeof(char)));
+		GLCall(glGetShaderInfoLog(id, length, &length, message))
+
+		std::cout << "Failed to compile " << (type == GL_VERTEX_SHADER ? "vertex" : "fragment") << "shader!" << std::endl;
+		std::cout << message << std::endl;
+
+		GLCall(glDeleteShader(id))
+		return 0;
+	}
+
+
+	return id;
+}
+
+static unsigned int CreateShader(const std::string& vertexShader, const std::string& fragmentShader)
+{
+	const unsigned int program = glCreateProgram();
+	const unsigned int vs = CompileShader(GL_VERTEX_SHADER, vertexShader);
+	const unsigned int fs = CompileShader(GL_FRAGMENT_SHADER, fragmentShader);
+
+	GLCall(glAttachShader(program, vs))
+	GLCall(glAttachShader(program, fs))
+	GLCall(glLinkProgram(program))
+	GLCall(glValidateProgram(program))
+
+	GLCall(glDeleteShader(vs))
+	GLCall(glDeleteShader(fs))
+
+	return program;
+}
+
+int main()
+{
+	/* Initialize the library */
+	if (!glfwInit())
+		return -1;
+
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+
+	/* Create a Windowed mode and its OpenGL context */
+	GLFWwindow* window = glfwCreateWindow(640, 480, "Hello World", nullptr, nullptr);
+	if (!window)
+	{
+		GLCall(glfwTerminate())
+		return -1;
+	}
+
+	/* Make the window's context current */
+	glfwMakeContextCurrent(window);
+
+	glfwSwapInterval(1);
+
+	if (glewInit() != GLEW_OK)
+		std::cout << "Error!" << std::endl;
+
+	std::cout << glGetString(GL_VERSION) << std::endl;
+
+	constexpr float positions[] = {
+			-0.5f, -0.5f,	// 0
+			 0.5f, -0.5f,	// 1
+			 0.5f,  0.5f,	// 2
+			-0.5f,  0.5f	// 3
+	};
+
+	const unsigned int indices[] = {
+		0, 1, 2,
+		2, 3, 0
+	};
+
+	unsigned int vao;
+	GLCall(glGenVertexArrays(1, &vao))
+	GLCall(glBindVertexArray(vao))
+
+
+	VertexBuffer vb(positions, static_cast<unsigned long long>(4) * 2 * sizeof(float));
+
+
+	GLCall(glEnableVertexAttribArray(0))
+	GLCall(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, nullptr))
+
+
+	const IndexBuffer ib(indices, 6);
+
+	const ShaderProgramSource source = ParseShader("res/shader/basic.shader");
+	unsigned const int shader = CreateShader(source.VertexSource, source.FragmentSource);
+	GLCall(glUseProgram(shader))
+
+	GLCall(const int location = glGetUniformLocation(shader, "u_Color"))
+	ASSERT(location != -1)
+	GLCall(glUniform4f(location, 0.8f, 0.3f, 0.8f, 1.0f))
+
+	GLCall(glBindVertexArray(0))
+	GLCall(glUseProgram(0))
+	GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0))
+	GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0))
+
+	float r = 0.0f;
+	float increment = 0.05f;
+	/* Loop until the user closes the window */
+	while (!glfwWindowShouldClose(window))
+	{
+		/* Render here */
+		GLCall(glClear(GL_COLOR_BUFFER_BIT))
+
+		GLCall(glUseProgram(shader))
+		GLCall(glUniform4f(location, r, 0.3f, 0.8f, 1.0f))
+
+		GLCall(glBindVertexArray(vao))
+		ib.Bind();
+
+		GLCall(glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr))
+
+		if (r > 1.0f)
+			increment = -0.05f;
+		else if (r < 0.0f)
+			increment = 0.05f;
+
+		r += increment;
+
+		/* Swap front and back buffers */
+		glfwSwapBuffers(window);
+
+		/* Poll for and events */
+		glfwPollEvents();
+	}
+
+	GLCall(glDeleteProgram(shader))
+
+	glfwTerminate();
+	return 0;
+}
+```
+
+
+
+#### OpenGL 中的缓冲区和布局的抽象

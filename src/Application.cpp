@@ -4,31 +4,10 @@
 #include <fstream>
 #include <string>
 #include <sstream>
+#include "Renderer.h"
+#include "Indexbuffer.h"
+#include "VertexBuffer.h"
 
-
-#define ASSERT(x) if (!(x)) __debugbreak(); // 断言宏
-#define GLCall(x) GLClearError();\
-    x;\
-    ASSERT(GLLogCall(#x, __FILE__, __LINE__)); // 调用OpenGL函数时使用宏来检查错误
-
-
-// 清除OpenGL错误
-static void GLClearError() 
-{
-	while (glGetError() != GL_NO_ERROR);
-	// while (!glGetError());// 也可以 
-}
-
-static bool GLLogCall(const char* function, const char* file, int line) 
-{
-    while (GLenum error = glGetError()) 
-    {
-        std::cout << "[OpenGL Error] (" << error << "): " << function 
-            << " " << file << ": " << line << std::endl;
-        return false;
-    }
-    return true;
-}
 
 struct ShaderProgramSource
 {
@@ -157,108 +136,98 @@ int main(void)
 
 
 #pragma region 向OpenGL提供数据所需的所有代码
+	{
+		float positions[] = {
+			-0.5f, -0.5f, // 0
+			 0.5f, -0.5f, // 1
+			 0.5f,  0.5f, // 2
+			 -0.5f, 0.5f, // 3
+		};
 
-    float positions[] = {
-		-0.5f, -0.5f, // 0
-		 0.5f, -0.5f, // 1
-		 0.5f,  0.5f, // 2
-		 -0.5f, 0.5f, // 3
-	};
+		/*定义一个索引缓冲区*/
+		unsigned int indices[] = {
+			0, 1, 2, // 第一个三角形
+			2, 3, 0  // 第二个三角形
+		};
 
-    /*定义一个索引缓冲区*/
-	unsigned int indices[] = {
-		0, 1, 2, // 第一个三角形
-		2, 3, 0  // 第二个三角形
-	};
+		/*创建顶点数组对象*/
+		unsigned int vao;
+		GLCall(glGenVertexArrays(1, &vao)); // 生成一个VAO
+		GLCall(glBindVertexArray(vao)); // 绑定VAO
 
-    /*创建顶点数组对象*/
-    unsigned int vao;
-	GLCall(glGenVertexArrays(1, &vao)); // 生成一个VAO
-	GLCall(glBindVertexArray(vao)); // 绑定VAO
-
-    /*定义缓冲区*/ /*VBO*/
-    unsigned int buffer; 
-    glGenBuffers(1, &buffer);
-    /*绑定缓冲区*/
-    glBindBuffer(GL_ARRAY_BUFFER, buffer);
-    /*输入数据*/
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 8, positions, GL_STATIC_DRAW);
-
+		VertexBuffer vb(positions, sizeof(float) * 4 * 2); // 创建顶点缓冲区对象
 
 #pragma region 告诉OpenGL我们的内存布局
-   
-    /*启用顶点属性*/
-    GLCall(glEnableVertexAttribArray(0));
-    // 0表示位置属性，2表示每个顶点有两个属性，GL_FLOAT表示属性类型，GL_FALSE表示不标准化，sizeof(float) * 2表示步长，0表示偏移量
-    GLCall(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, 0));
-	/*创建索引缓冲区*/
-    unsigned int ibo;
-    GLCall(glGenBuffers(1, &ibo));
-    GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo));
-    GLCall(glBufferData(GL_ELEMENT_ARRAY_BUFFER, 6 * sizeof(unsigned int), indices, GL_STATIC_DRAW));
+
+		/*启用顶点属性*/
+		GLCall(glEnableVertexAttribArray(0));
+		// 0表示位置属性，2表示每个顶点有两个属性，GL_FLOAT表示属性类型，GL_FALSE表示不标准化，sizeof(float) * 2表示步长，0表示偏移量
+		GLCall(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, 0));
+		/*创建索引缓冲区*/
+		IndexBuffer ib(indices, 6); // 创建索引缓冲区对象
 
 
 #pragma endregion
 
 #pragma endregion
-	ShaderProgramSource source = ParseShader("res/shaders/Basic.shader"); // 解析着色器
+		ShaderProgramSource source = ParseShader("res/shaders/Basic.shader"); // 解析着色器
 
-	unsigned int shader = CreateShader(source.VertexSource, source.FragmentSource);
-    glUseProgram(shader); // 绑定着色器
+		unsigned int shader = CreateShader(source.VertexSource, source.FragmentSource);
+		glUseProgram(shader); // 绑定着色器
 
-	GLCall(int localtion = glGetUniformLocation(shader, "u_Color")); // 获取uniform变量位置
-	ASSERT(localtion != -1); // 检查uniform变量位置是否有效
-    glUniform4f(localtion, 1.0f, 0.3f, 0.8f, 1.0f); // 设置uniform变量
+		GLCall(int localtion = glGetUniformLocation(shader, "u_Color")); // 获取uniform变量位置
+		ASSERT(localtion != -1); // 检查uniform变量位置是否有效
+		glUniform4f(localtion, 1.0f, 0.3f, 0.8f, 1.0f); // 设置uniform变量
 
-    /*解绑所有缓冲区*/
-	GLCall(glBindVertexArray(0);) // 解绑VAO
-	GLCall(glUseProgram(0);) // 解绑Program
-	GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0);) // 解绑VBO
-	GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);) // 解绑IBO
+		/*解绑所有缓冲区*/
+		GLCall(glBindVertexArray(0)); // 解绑VAO
+		GLCall(glUseProgram(0)); // 解绑Program
+		GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0);) // 解绑VBO
+			GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)); // 解绑IBO
 
-	float r = 0.0f;
-	float increment = 0.05f;
+		float r = 0.0f;
+		float increment = 0.05f;
 
-    /* Loop until the user closes the window */
-    while (!glfwWindowShouldClose(window))
-    {
-        /* Render here */
-        glClear(GL_COLOR_BUFFER_BIT);
-
-
-        /*颜色动态变化*/
-        GLCall(glUseProgram(shader);)
-        glUniform4f(localtion, r, 0.3f, 0.8f, 1.0f);
-
-		GLCall(glBindVertexArray(vao)); // 绑定顶点数组对象
-		GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);) // 绑定索引缓冲区
-
-        /*发出一个DrawCall*/
-        // glDrawArrays(GL_TRIANGLES, 0, 6);
-
-		// GLClearError(); // 清除OpenGL错误
-		GLCall(glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);) // 绘制索引缓冲区中的元素 数量，类型都是索引缓冲区
-		// ASSERT(GLLogCall()); // 检查OpenGL错误
-        
-		if (r > 1.0f)
+		/* Loop until the user closes the window */
+		while (!glfwWindowShouldClose(window))
 		{
-			increment = -0.05f;
+			/* Render here */
+			glClear(GL_COLOR_BUFFER_BIT);
+
+
+			/*颜色动态变化*/
+			GLCall(glUseProgram(shader);)
+				glUniform4f(localtion, r, 0.3f, 0.8f, 1.0f);
+
+			GLCall(glBindVertexArray(vao)); // 绑定顶点数组对象
+			ib.Bind(); // 绑定索引缓冲区
+
+			/*发出一个DrawCall*/
+			// glDrawArrays(GL_TRIANGLES, 0, 6);
+
+			// GLClearError(); // 清除OpenGL错误
+			GLCall(glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr)); // 绘制索引缓冲区中的元素 数量，类型都是索引缓冲区
+			// ASSERT(GLLogCall()); // 检查OpenGL错误
+
+			if (r > 1.0f)
+			{
+				increment = -0.05f;
+			}
+			else if (r < 0.0f)
+			{
+				increment = 0.05f;
+			}
+			r += increment; // 更新颜色值
+
+			/* Swap front and back buffers */
+			glfwSwapBuffers(window);
+
+			/* Poll for and process events */
+			glfwPollEvents();
 		}
-		else if (r < 0.0f)
-		{
-			increment = 0.05f;
-		}
-		r += increment; // 更新颜色值
 
-        /* Swap front and back buffers */
-        glfwSwapBuffers(window);
-
-        /* Poll for and process events */
-        glfwPollEvents();
-    }
-
-	glDeleteProgram(shader); // 用完后记得删除着色器程序
-
+		glDeleteProgram(shader); // 用完后记得删除着色器程序
+	} // 创建作用域 创建的对象会在作用域结束时自动销毁
     glfwTerminate();
     return 0;
 }
