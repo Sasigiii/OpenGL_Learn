@@ -1528,3 +1528,372 @@ int main()
 
 
 #### OpenGL 中的缓冲区和布局的抽象
+
+首先我们抽象顶点数组的目的是什么？
+
+对我们来说，顶点数组需要做的是**将顶点缓冲区与某种布局联系在一起**，所以顶点缓冲区就是有数据的缓冲区，它们没有实际的概念比如前三个浮点数是位置，没有类型或者大小之类的概念，它只是实际数据的普通缓冲区。每个字节是什么、这些顶点有多大等等才是顶点数组真正代表的，它应该把缓冲区和实际布局联系在一起。
+
+顶点数组对象是 OpenGL 存储那种状态的方式，那么当我们考虑创建这个接口时，我们需要做的是需要一些东西来创建一个顶点数组。
+
+###### 顶点数组布局类
+
+新建顶点数组布局类 `VertexBufferLayout.h`：
+
+```c++
+#pragma once
+
+#include <vector>
+#include <GL/glew.h>
+
+#include "Renderer.h"
+
+struct VertexBufferElement
+{
+    unsigned int type;
+    unsigned int count;
+    unsigned char normalized;
+
+    static unsigned int GetSizeOfType(unsigned int type)
+    {
+        switch (type)
+        {
+        case GL_FLOAT:          return 4;
+        case GL_UNSIGNED_INT:   return 4;
+        case GL_UNSIGNED_BYTE:  return 1;
+        }
+
+        ASSERT(false)
+        return 0;
+    }
+};
+
+class VertexBufferLayout
+{
+private:
+    unsigned int m_Stride;
+    std::vector<VertexBufferElement> m_Elements;
+
+public:
+    VertexBufferLayout()
+        : m_Stride(0) {}
+
+    template<typename T>
+    void Push(unsigned int count)
+    {
+        // static_assert(false);
+    }
+
+    template<>
+    void Push<float>(unsigned int count)
+    {
+        m_Elements.push_back({ GL_FLOAT, count, GL_FALSE });
+        m_Stride += count * VertexBufferElement::GetSizeOfType(GL_FLOAT);
+    }
+
+    template<>
+    void Push<unsigned int>(unsigned int count)
+    {
+        m_Elements.push_back({ GL_UNSIGNED_INT, count, GL_FALSE });
+        m_Stride += count * VertexBufferElement::GetSizeOfType(GL_UNSIGNED_INT);
+    }
+
+    template<>
+    void Push<unsigned char>(unsigned int count)
+    {
+        m_Elements.push_back({ GL_UNSIGNED_BYTE, count, GL_TRUE });
+        m_Stride += count * VertexBufferElement::GetSizeOfType(GL_UNSIGNED_BYTE);
+    }
+
+    inline unsigned int GetStride() const { return m_Stride; }
+    inline std::vector<VertexBufferElement> GetElements() const { return m_Elements; }
+};
+```
+
+###### 顶点数组类抽象
+
+新建 `VertexArray.h` 和 `VertexArray.cpp`：
+
+```c++
+#pragma once
+
+#include "VertexBuffer.h"
+#include "VertexBufferLayout.h"
+
+class VertexArray
+{
+private:
+    unsigned int m_RendererID;
+public:
+    VertexArray();
+    ~VertexArray();
+
+    void Bind() const;
+    void Unbind() const;
+  
+    void AddBuffer(const VertexBuffer& vb, const VertexBufferLayout& layout);
+};
+```
+
+头文件包含了成员变量 `m_RendererID`、构造函数、析构函数、缓冲区添加函数以及绑定 / 解绑函数的声明。
+
+```c++
+#include "VertexArray.h"
+
+#include "Renderer.h"
+
+VertexArray::VertexArray()
+{
+    GLCall(glGenVertexArrays(1, &m_RendererID))
+}
+
+VertexArray::~VertexArray()
+{
+    GLCall(glDeleteVertexArrays(1, &m_RendererID))
+}
+
+
+void VertexArray::Bind() const
+{
+    GLCall(glBindVertexArray(m_RendererID))
+}
+
+
+void VertexArray::Unbind() const
+{
+    GLCall(glBindVertexArray(0))
+}
+
+
+
+void VertexArray::AddBuffer(const VertexBuffer& vb, const VertexBufferLayout& layout)
+{
+    Bind();
+    vb.Bind();
+
+    unsigned int offset = 0;
+    const auto& elements = layout.GetElements();
+    for (unsigned int i = 0; i < elements.size(); i++)
+    {
+        const auto& element = elements[i];
+  
+        GLCall(glEnableVertexAttribArray(i))
+        GLCall(glVertexAttribPointer(i, element.count, element.type, element.normalized, layout.GetStride(), (const void*)offset))
+
+        offset += element.count * VertexBufferElement::GetSizeOfType(element.type);
+    }
+  
+}
+
+```
+
+###### 应用类
+
+最后用封装好的类替换之前 `Application.cpp` 中的代码：
+
+```c++
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <sstream>
+
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+
+#include "Renderer.h"
+
+#include "VertexBuffer.h"
+#include "IndexBuffer.h"
+#include "VertexArray.h"
+
+struct ShaderProgramSource
+{
+	std::string VertexSource;
+	std::string FragmentSource;
+};
+
+static ShaderProgramSource ParseShader(const std::string& filepath)
+{
+	std::ifstream stream(filepath);
+
+	enum class ShaderType
+	{
+		NONE = -1, VERTEX = 0, FRAGMENT = 1
+	};
+
+	std::string line;
+	std::stringstream ss[2];
+	ShaderType type = ShaderType::NONE;
+	while (getline(stream, line))
+	{
+		if (line.find("#shader") != std::string::npos)
+		{
+			if (line.find("vertex") != std::string::npos)
+				type = ShaderType::VERTEX;
+			else if (line.find("fragment") != std::string::npos)
+				type = ShaderType::FRAGMENT;
+		}
+		else
+		{
+			ss[static_cast<int>(type)] << line << '\n';
+		}
+	}
+
+	return { ss[0].str(), ss[1].str() };
+}
+
+static unsigned int CompileShader(unsigned int type, const std::string& source)
+{
+	const unsigned int id = glCreateShader(type);
+	const char* src = source.c_str();
+	GLCall(glShaderSource(id, 1, &src, nullptr))
+	GLCall(glCompileShader(id))
+
+	// TODO: Error handling
+	int result;
+	GLCall(glGetShaderiv(id, GL_COMPILE_STATUS, &result))
+	if (result == GL_FALSE)
+	{
+		int length;
+		GLCall(glGetShaderiv(id, GL_INFO_LOG_LENGTH, &length))
+
+		char* message = static_cast<char*>(malloc(length * sizeof(char)));
+		GLCall(glGetShaderInfoLog(id, length, &length, message))
+
+		std::cout << "Failed to compile " << (type == GL_VERTEX_SHADER ? "vertex" : "fragment") << "shader!" << std::endl;
+		std::cout << message << std::endl;
+
+		GLCall(glDeleteShader(id))
+		return 0;
+	}
+
+
+	return id;
+}
+
+static unsigned int CreateShader(const std::string& vertexShader, const std::string& fragmentShader)
+{
+	const unsigned int program = glCreateProgram();
+	const unsigned int vs = CompileShader(GL_VERTEX_SHADER, vertexShader);
+	const unsigned int fs = CompileShader(GL_FRAGMENT_SHADER, fragmentShader);
+
+	GLCall(glAttachShader(program, vs))
+	GLCall(glAttachShader(program, fs))
+	GLCall(glLinkProgram(program))
+	GLCall(glValidateProgram(program))
+
+	GLCall(glDeleteShader(vs))
+	GLCall(glDeleteShader(fs))
+
+	return program;
+}
+
+int main()
+{
+	/* Initialize the library */
+	if (!glfwInit())
+		return -1;
+
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+
+	/* Create a Windowed mode and its OpenGL context */
+	GLFWwindow* window = glfwCreateWindow(640, 480, "Hello World", nullptr, nullptr);
+	if (!window)
+	{
+		GLCall(glfwTerminate())
+		return -1;
+	}
+
+	/* Make the window's context current */
+	glfwMakeContextCurrent(window);
+
+	glfwSwapInterval(1);
+
+	if (glewInit() != GLEW_OK)
+		std::cout << "Error!" << std::endl;
+
+	std::cout << glGetString(GL_VERSION) << std::endl;
+	{
+		constexpr float positions[] = {
+			-0.5f, -0.5f,	// 0
+			 0.5f, -0.5f,	// 1
+			 0.5f,  0.5f,	// 2
+			-0.5f,  0.5f	// 3
+		};
+
+		const unsigned int indices[] = {
+			0, 1, 2,
+			2, 3, 0
+		};
+
+		unsigned int vao;
+		GLCall(glGenVertexArrays(1, &vao))
+		GLCall(glBindVertexArray(vao))
+
+		VertexArray va;
+		const VertexBuffer vb(positions, static_cast<unsigned long long>(4) * 2 * sizeof(float));
+
+		VertexBufferLayout layout;
+		layout.Push<float>(2);
+		va.AddBuffer(vb, layout);
+
+		const IndexBuffer ib(indices, 6);
+
+		const ShaderProgramSource source = ParseShader("res/shader/basic.shader");
+		unsigned const int shader = CreateShader(source.VertexSource, source.FragmentSource);
+		GLCall(glUseProgram(shader))
+
+		GLCall(const int location = glGetUniformLocation(shader, "u_Color"))
+		ASSERT(location != -1)
+		GLCall(glUniform4f(location, 0.8f, 0.3f, 0.8f, 1.0f))
+
+		GLCall(glBindVertexArray(0))
+		GLCall(glUseProgram(0))
+		GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0))
+		GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0))
+
+		float r = 0.0f;
+		float increment = 0.05f;
+		/* Loop until the user closes the window */
+		while (!glfwWindowShouldClose(window))
+		{
+			/* Render here */
+			GLCall(glClear(GL_COLOR_BUFFER_BIT))
+
+			GLCall(glUseProgram(shader))
+			GLCall(glUniform4f(location, r, 0.3f, 0.8f, 1.0f))
+
+
+			va.Bind();
+			ib.Bind();
+
+			GLCall(glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr))
+
+			if (r > 1.0f)
+				increment = -0.05f;
+			else if (r < 0.0f)
+				increment = 0.05f;
+
+			r += increment;
+
+			/* Swap front and back buffers */
+			glfwSwapBuffers(window);
+
+			/* Poll for and events */
+			glfwPollEvents();
+		}
+
+		GLCall(glDeleteProgram(shader))
+	}
+
+	glfwTerminate();
+	return 0;
+}
+```
+
+
+
+
+

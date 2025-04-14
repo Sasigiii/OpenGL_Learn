@@ -7,6 +7,7 @@
 #include "Renderer.h"
 #include "Indexbuffer.h"
 #include "VertexBuffer.h"
+#include "VertexArray.h"
 
 
 struct ShaderProgramSource
@@ -155,14 +156,19 @@ int main(void)
 		GLCall(glGenVertexArrays(1, &vao)); // 生成一个VAO
 		GLCall(glBindVertexArray(vao)); // 绑定VAO
 
+		VertexArray va; // 创建顶点数组对象
 		VertexBuffer vb(positions, sizeof(float) * 4 * 2); // 创建顶点缓冲区对象
+
+		VertexBufferLayout layout; // 创建顶点缓冲区布局
+		layout.Push<float>(2); // 添加一个float类型的元素，表示每个顶点有两个属性
+		va.AddBuffer(vb, layout); // 添加缓冲区到顶点数组对象)
 
 #pragma region 告诉OpenGL我们的内存布局
 
 		/*启用顶点属性*/
-		GLCall(glEnableVertexAttribArray(0));
+		// GLCall(glEnableVertexAttribArray(0));
 		// 0表示位置属性，2表示每个顶点有两个属性，GL_FLOAT表示属性类型，GL_FALSE表示不标准化，sizeof(float) * 2表示步长，0表示偏移量
-		GLCall(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, 0));
+		// GLCall(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, 0));
 		/*创建索引缓冲区*/
 		IndexBuffer ib(indices, 6); // 创建索引缓冲区对象
 
@@ -199,7 +205,8 @@ int main(void)
 			GLCall(glUseProgram(shader);)
 				glUniform4f(localtion, r, 0.3f, 0.8f, 1.0f);
 
-			GLCall(glBindVertexArray(vao)); // 绑定顶点数组对象
+			// GLCall(glBindVertexArray(vao)); // 绑定顶点数组对象
+			va.Bind(); // 绑定顶点数组对象
 			ib.Bind(); // 绑定索引缓冲区
 
 			/*发出一个DrawCall*/
