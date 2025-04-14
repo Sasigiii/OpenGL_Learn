@@ -151,10 +151,6 @@ int main(void)
 			2, 3, 0  // 第二个三角形
 		};
 
-		/*创建顶点数组对象*/
-		unsigned int vao;
-		GLCall(glGenVertexArrays(1, &vao)); // 生成一个VAO
-		GLCall(glBindVertexArray(vao)); // 绑定VAO
 
 		VertexArray va; // 创建顶点数组对象
 		VertexBuffer vb(positions, sizeof(float) * 4 * 2); // 创建顶点缓冲区对象
@@ -186,10 +182,10 @@ int main(void)
 		glUniform4f(localtion, 1.0f, 0.3f, 0.8f, 1.0f); // 设置uniform变量
 
 		/*解绑所有缓冲区*/
-		GLCall(glBindVertexArray(0)); // 解绑VAO
+		va.Unbind(); // 解绑顶点数组对象
 		GLCall(glUseProgram(0)); // 解绑Program
 		GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0);) // 解绑VBO
-			GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)); // 解绑IBO
+		GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)); // 解绑IBO
 
 		float r = 0.0f;
 		float increment = 0.05f;
@@ -205,7 +201,6 @@ int main(void)
 			GLCall(glUseProgram(shader);)
 				glUniform4f(localtion, r, 0.3f, 0.8f, 1.0f);
 
-			// GLCall(glBindVertexArray(vao)); // 绑定顶点数组对象
 			va.Bind(); // 绑定顶点数组对象
 			ib.Bind(); // 绑定索引缓冲区
 

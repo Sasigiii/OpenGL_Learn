@@ -31,7 +31,6 @@ void VertexArray::AddBuffer(const VertexBuffer& vb, const VertexBufferLayout& la
 	{
 		const auto& element = elements[i]; // 获取元素
 		GLCall(glEnableVertexAttribArray(i)); // 启用顶点属性
-		std::cout << "element.count: " << element.count << std::endl;
 		GLCall(glVertexAttribPointer(i, element.count, element.type, element.normalized, layout.GetStride(), (const void*)offest));
 		offest += element.count * VertexBufferElement::GetSizeOfType(element.type); // 更新偏移量
 	}
