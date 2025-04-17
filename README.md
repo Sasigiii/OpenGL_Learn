@@ -1944,3 +1944,242 @@ private:
 };
 ```
 
+```c++
+#include "Shader.h"
+
+#include <iostream>
+#include <fstream>
+#include <sstream>
+
+#include "Renderer.h"
+
+Shader::Shader(const std::string& filepath)
+    : m_FilePath(filepath), m_RendererID(0)
+{
+    const ShaderProgramSource source = ParseShader(filepath);
+    m_RendererID = CreateShader(source.VertexSource, source.FragmentSource);
+}
+
+Shader::~Shader()
+{
+    GLCall(glDeleteProgram(m_RendererID))
+}
+
+void Shader::Bind() const
+{
+    GLCall(glUseProgram(m_RendererID))
+}
+
+void Shader::Unbind() const
+{
+    GLCall(glUseProgram(0))
+}
+
+void Shader::SetUniform4f(const std::string& name, float v0, float v1, float v2, float v3)
+{
+    GLCall(glUniform4f(GetUniformLocation(name), v0, v1, v2, v3))
+}
+
+unsigned int Shader::GetUniformLocation(const std::string& name)
+{
+    if (m_UniformLocationCache.find(name) != m_UniformLocationCache.end())
+        return m_UniformLocationCache[name];
+  
+    GLCall(const int location = glGetUniformLocation(m_RendererID, name.c_str()))
+    if (location == -1)
+        std::cout << "Warning: uniform '" << name << "' doesn't exist!" << std::endl;
+
+    return location;
+}
+
+
+ShaderProgramSource Shader::ParseShader(const std::string& filepath) const
+{
+    std::ifstream stream(filepath);
+
+    enum class ShaderType
+    {
+        NONE = -1, VERTEX = 0, FRAGMENT = 1
+    };
+
+    std::string line;
+    std::stringstream ss[2];
+    ShaderType type = ShaderType::NONE;
+    while (getline(stream, line))
+    {
+        if (line.find("#shader") != std::string::npos)
+        {
+            if (line.find("vertex") != std::string::npos)
+                type = ShaderType::VERTEX;
+            else if (line.find("fragment") != std::string::npos)
+                type = ShaderType::FRAGMENT;
+        }
+        else
+        {
+            ss[static_cast<int>(type)] << line << '\n';
+        }
+    }
+
+    return { ss[0].str(), ss[1].str() };
+}
+
+unsigned int Shader::CompileShader(unsigned int type, const std::string& source)
+{
+    const unsigned int id = glCreateShader(type);
+    const char* src = source.c_str();
+    GLCall(glShaderSource(id, 1, &src, nullptr))
+    GLCall(glCompileShader(id))
+
+    // TODO: Error handling
+    int result;
+    GLCall(glGetShaderiv(id, GL_COMPILE_STATUS, &result))
+    if (result == GL_FALSE)
+    {
+        int length;
+        GLCall(glGetShaderiv(id, GL_INFO_LOG_LENGTH, &length))
+
+        char* message = static_cast<char*>(malloc(length * sizeof(char)));
+        GLCall(glGetShaderInfoLog(id, length, &length, message))
+
+        std::cout << "Failed to compile " << (type == GL_VERTEX_SHADER ? "vertex" : "fragment") << "shader!" << std::endl;
+        std::cout << message << std::endl;
+
+        GLCall(glDeleteShader(id))
+        return 0;
+    }
+
+
+    return id;
+}
+
+unsigned int Shader::CreateShader(const std::string& vertexShader, const std::string& fragmentShader)
+{
+    const unsigned int program = glCreateProgram();
+    const unsigned int vs = CompileShader(GL_VERTEX_SHADER, vertexShader);
+    const unsigned int fs = CompileShader(GL_FRAGMENT_SHADER, fragmentShader);
+
+    GLCall(glAttachShader(program, vs))
+    GLCall(glAttachShader(program, fs))
+    GLCall(glLinkProgram(program))
+    GLCall(glValidateProgram(program))
+
+    GLCall(glDeleteShader(vs))
+    GLCall(glDeleteShader(fs))
+
+    return program;
+}
+```
+
+###### 应用类
+
+```c++
+#include <iostream>
+#include <fstream>
+
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+
+#include "Renderer.h"
+
+#include "VertexBuffer.h"
+#include "IndexBuffer.h"
+#include "VertexArray.h"
+#include "Shader.h"
+
+int main()
+{
+	/* Initialize the library */
+	if (!glfwInit())
+		return -1;
+
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+
+	/* Create a Windowed mode and its OpenGL context */
+	GLFWwindow* window = glfwCreateWindow(640, 480, "Hello World", nullptr, nullptr);
+	if (!window)
+	{
+		GLCall(glfwTerminate())
+		return -1;
+	}
+
+	/* Make the window's context current */
+	glfwMakeContextCurrent(window);
+
+	glfwSwapInterval(1);
+
+	if (glewInit() != GLEW_OK)
+		std::cout << "Error!" << std::endl;
+	std::cout << glGetString(GL_VERSION) << std::endl;
+
+	constexpr float positions[] = {
+		-0.5f, -0.5f,	// 0
+		 0.5f, -0.5f,	// 1
+		 0.5f,  0.5f,	// 2
+		-0.5f,  0.5f	// 3
+	};
+
+	const unsigned int indices[] = {
+		0, 1, 2,
+		2, 3, 0
+	};
+
+	unsigned int vao;
+	GLCall(glGenVertexArrays(1, &vao))
+	GLCall(glBindVertexArray(vao))
+
+	VertexArray va;
+	const VertexBuffer vb(positions, static_cast<unsigned long long>(4) * 2 * sizeof(float));
+
+	VertexBufferLayout layout;
+	layout.Push<float>(2);
+	va.AddBuffer(vb, layout);
+
+	const IndexBuffer ib(indices, 6);
+
+	Shader shader("res/shader/basic.shader");
+	shader.Bind();
+	shader.SetUniform4f("u_Color", 0.8f, 0.3f, 0.8f, 1.0f);
+
+	va.Unbind();
+	shader.Unbind();
+	vb.Unbind();
+	ib.Unbind();
+
+	float r = 0.0f;
+	float increment = 0.05f;
+	/* Loop until the user closes the window */
+	while (!glfwWindowShouldClose(window))
+	{
+		/* Render here */
+		GLCall(glClear(GL_COLOR_BUFFER_BIT))
+
+		shader.Bind();
+		shader.SetUniform4f("u_Color", r, 0.3f, 0.8f, 1.0f);
+
+		va.Bind();
+		ib.Bind();
+
+		GLCall(glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr))
+
+		if (r > 1.0f)
+			increment = -0.05f;
+		else if (r < 0.0f)
+			increment = 0.05f;
+
+		r += increment;
+
+		/* Swap front and back buffers */
+		glfwSwapBuffers(window);
+
+		/* Poll for and events */
+		glfwPollEvents();
+	}
+
+	glfwTerminate();
+	return 0;
+}
+```
+
