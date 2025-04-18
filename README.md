@@ -2190,3 +2190,230 @@ int main()
 
 
 #### OpenGL 写一个基础的渲染器类
+
+今天我们的目标是剔除在主文件中遗留的 OpenGL 调用。
+
+虽然前面几节我们用 `VertexBuffer`、`IndexBuffer`、`VertexArray`、`Shader` 等类抽象 OpenGL 代码，但是还有相当一部分遗留在 `Application.cpp` 中，例如 DrawCall 指令。
+
+渲染器就像一个工厂，我们提供数据给渲染器，希望渲染器能显示到屏幕上。
+
+```c++
+#pragma once
+
+#include <GL/glew.h>
+
++#include "VertexArray.h"
++#include "IndexBuffer.h"
++#include "Shader.h"
+
+#define  ASSERT(x) if (!(x))   __debugbreak();
+#define  GLCall(x) GLClearError();  x;  ASSERT(GLLogCall(#x, __FILE__, __LINE__))
+
+void GLClearError();
+bool GLLogCall(const char* function, const char* file, int line);
+
++class Renderer
++{
++public:
++   void Clear() const;
++   void Draw(const VertexArray& va, const IndexBuffer& ib,const Shader& shader) const;
++};
+```
+
+让我们想一想，在 OpenGL 绘制一些东西我们实际需要什么。我们需要顶点数组和索引缓冲区以及着色器，顶点数组实际已经绑定了顶点缓冲区，
+
+```c++
+void Renderer::Clear() const
+{
+    GLCall(glClear(GL_COLOR_BUFFER_BIT))
+}
+
+void Renderer::Draw(const VertexArray& va, const IndexBuffer& ib, const Shader& shader) const
+{
+    shader.Bind();
+    shader.SetUniform4f("u_Color", r, 0.3f, 0.8f, 1.0f);
+
+    va.Bind();
+    ib.Bind();
+
+    GLCall(glDrawElements(GL_TRIANGLES, ib.GetCount(), GL_UNSIGNED_INT, nullptr))
+}
+```
+
+复制完 `Application.cpp` 中的绑定代码后并不打算解绑。在更传统的情况下，OpenGL 中解绑不是严格必要的，它可能会减少一些 bug，但从根本上来说在 OpenGL 中解绑东西只是浪费性能，你不需要这么做，因为在我们绘制下一个东西之前我们会把这些东西都绑定起来，所以解绑没有意义。更复杂的系统可能会在调试模式下会有解绑，但暂时我们还是简单处理。
+
+```c++
+#include <iostream>
+#include <fstream>
+
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+
+#include "Renderer.h"
+
+#include "VertexBuffer.h"
+#include "IndexBuffer.h"
+#include "VertexArray.h"
+#include "Shader.h"
+
+int main()
+{
+	/* Initialize the library */
+	if (!glfwInit())
+		return -1;
+
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+
+	/* Create a Windowed mode and its OpenGL context */
+	GLFWwindow* window = glfwCreateWindow(640, 480, "Hello World", nullptr, nullptr);
+	if (!window)
+	{
+		GLCall(glfwTerminate())
+		return -1;
+	}
+
+	/* Make the window's context current */
+	glfwMakeContextCurrent(window);
+
+	glfwSwapInterval(1);
+
+	if (glewInit() != GLEW_OK)
+		std::cout << "Error!" << std::endl;
+	std::cout << glGetString(GL_VERSION) << std::endl;
+
+	constexpr float positions[] = {
+		-0.5f, -0.5f,	// 0
+		 0.5f, -0.5f,	// 1
+		 0.5f,  0.5f,	// 2
+		-0.5f,  0.5f	// 3
+	};
+
+	const unsigned int indices[] = {
+		0, 1, 2,
+		2, 3, 0
+	};
+
+	unsigned int vao;
+	GLCall(glGenVertexArrays(1, &vao))
+	GLCall(glBindVertexArray(vao))
+
+	VertexArray va;
+	const VertexBuffer vb(positions, static_cast<unsigned long long>(4) * 2 * sizeof(float));
+
+	VertexBufferLayout layout;
+	layout.Push<float>(2);
+	va.AddBuffer(vb, layout);
+
+	const IndexBuffer ib(indices, 6);
+
+	Shader shader("res/shader/basic.shader");
+	shader.Bind();
+	shader.SetUniform4f("u_Color", 0.8f, 0.3f, 0.8f, 1.0f);
+
+	va.Unbind();
+	shader.Unbind();
+	vb.Unbind();
+	ib.Unbind();
+
++	Renderer renderer;
+
+	float r = 0.0f;
+	float increment = 0.05f;
+	/* Loop until the user closes the window */
+	while (!glfwWindowShouldClose(window))
+	{
+		/* Render here */
++		renderer.Clear();
+-		GLCall(glClear(GL_COLOR_BUFFER_BIT))
+
+		shader.Bind();
+		shader.SetUniform4f("u_Color", r, 0.3f, 0.8f, 1.0f);
+
+-		va.Bind();
+-		ib.Bind();
+
+-		GLCall(glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr))
+
+		if (r > 1.0f)
+			increment = -0.05f;
+		else if (r < 0.0f)
+			increment = 0.05f;
+
+		r += increment;
+
+		/* Swap front and back buffers */
+		glfwSwapBuffers(window);
+
+		/* Poll for and events */
+		glfwPollEvents();
+	}
+
+	glfwTerminate();
+	return 0;
+}
+```
+
+
+
+#### OpenGL 中的纹理今天我们会讨论 OpenGL 中的纹理。
+
+###### 纹理
+
+当大部分人想到纹理的时候，他们真的只会想到在一个游戏中的 3D 对象上呈现图像（当然不一定非得是 3D 对象）。而你们在 Ps 或画图等等中创建的图像，让它出现在你们的图形应用程序中，那就是纹理的本质，或者至少是大部分人眼中的纹理。
+
+现在，除了这些，关于纹理的理解比我刚才描述的要多得多。纹理可以用于很多事情，当后面讲到一些非常复杂的图形技术时我们会提到，但现在我只想让你们把纹理看作当渲染时是我们可以使用的图像。那么我实际能做的就是设计或创造某种图像，不管是一张照片还是画布上一条弯弯曲曲的线亦或是纯色以及任意类似的颜色，我都可以在我的电脑中创建任何图像文件，然后把它上传到我的显存中，然后在我的着色器中使用它来绘制我现在正在做的任何东西。
+
+这可能像在我们的 OpenGL 程序中画一个矩形一样简单，它包含了渲染纹理的元素，这样我们就可以在游戏中看到纹理。或者也可能是更复杂的东西，就像使用预先计算好的数学值将其融入到我们的纹理中，然后在着色器中对它们进行采样，这样我们可以做一些很酷的灯光效果。但现在，它只会在 OpenGL 应用中从计算机获取图像到表面。
+
+###### 第三方库
+
+回到项目，添加 `res/textures/Checkerboard.png`：
+
+![img](img/X8XHLg.png)
+
+首先我们需要以某种方式将 PNG 图像加载到 CPU 内存中，可以使用 `stb_image` 库加载 PNG。我们给它一个文件路径，它会给我们一个指向 RGBA 像素缓冲区的指针；然后我们会取那个像素数组把它上传到我们的显卡；最后当它绘制时就可以修改着色器来读取那个纹理，片段着色器实际计算出每个像素应该是什么，构成那个纹理每部分的颜色是什么。
+
+- [stb](https://github.com/nothings/stb)
+
+![img](img/Z8UO7K.png)
+
+复制 `stb_image.h` 中的代码到项目的 `vendor/stb_images/stb_image.h`。新建 `stb_image.cpp`：
+
+```c++
+#define STB_IMAGE_IMPLEMENTATION
+
+#include "stb_image.h"
+```
+
+###### 纹理类抽象
+
+新建文件 `Texture.h` 和 `Texture.cpp`：
+
+```c++
+#pragma once
+
+#include "Renderer.h"
+
+class Texture
+{
+private:
+    std::string m_FilePath;
+    unsigned int m_RendererID;
+    unsigned char m_LocalBuffer;
+    int m_Width, m_Height, m_BPP;
+public:
+    Texture(const std::string& path);
+    ~Texture();
+
+    void Bind(unsigned int slot = 0) const;
+    void Unbind() const;
+
+    inline int GetWidth() const { return m_Width; }
+    inline int GetHeight() const { return m_Height; }
+}
+```
+
+`slot` 就是绑定纹理的插槽。在 OpenGL 我们有各种各样的插槽可以绑定纹理，Windows 上经典的现代显卡会有 32 个纹理插槽，而在诸如安卓等移动设备上可能有八个插槽，这取决于你们的实际显卡以及它们的 OpenGL 实现。
